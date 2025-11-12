@@ -1,0 +1,59 @@
+╔══════════════════════════════════════════════════════════╗
+║                                                          ║
+║           🚀 BlockCast - Quick Start Guide 🚀            ║
+║                                                          ║
+╚══════════════════════════════════════════════════════════╝
+
+✅ SETUP COMPLETE! API keys configured.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+📍 TO START THE APP:
+
+   Option 1: Full Stack (Recommended)
+   ────────────────────────────────────
+   > start-all.bat
+
+   This starts:
+   - Frontend → http://localhost:3000
+   - AI Proxy → http://localhost:3001
+   - Market Monitor → http://localhost:3002
+
+
+   Option 2: Frontend Only
+   ────────────────────────
+   > npm run dev
+
+   This starts:
+   - Frontend → http://localhost:3000
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+🔧 USEFUL COMMANDS:
+
+   Kill running processes:
+   > npx kill-port 3000 3001 3002
+
+   Start individual services:
+   > npm run dev         (Frontend)
+   > npm run server      (AI Proxy)
+   > npm run monitor     (Market Monitor)
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+📚 DOCUMENTATION:
+
+   - QUICK_START.md → Quick reference
+   - STARTUP_GUIDE.md → Full instructions
+   - docs/ → All detailed documentation
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+🎯 RECOMMENDED WORKFLOW:
+
+   1. npx kill-port 3000 3001 3002
+   2. start-all.bat
+   3. Open http://localhost:3000
+   4. Done! 🎉
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━

@@ -1,0 +1,232 @@
+@import url('https://fonts.googleapis.com/css2?family=Source+Sans+Pro:ital,wght@0,200;0,300;0,400;0,600;0,700;0,900;1,200;1,300;1,400;1,600;1,700;1,900&display=swap');
+
+@custom-variant dark (&:is(.dark *));
+
+:root {
+  --font-size: 14px;
+  --background: #151d28;
+  --foreground: #f9f9ff;
+  --card: #1a2935;
+  --card-foreground: #f9f9ff;
+  --popover: #1a2935;
+  --popover-foreground: #f9f9ff;
+  --primary: #06f6ff;
+  --primary-foreground: #1a2935;
+  --secondary: #5b3ae8;
+  --secondary-foreground: #f9f9ff;
+  --muted: #2e3343;
+  --muted-foreground: #b7b7b7;
+  --accent: #06f6ff;
+  --accent-foreground: #1a2935;
+  --destructive: #d4183d;
+  --destructive-foreground: #ffffff;
+  --border: rgba(183, 183, 183, 0.2);
+  --input: #2e3343;
+  --input-background: #2e3343;
+  --switch-background: #2e3343;
+  --font-weight-medium: 600;
+  --font-weight-normal: 400;
+  --ring: #06f6ff;
+  --chart-1: #06f6ff;
+  --chart-2: #5b3ae8;
+  --chart-3: #17ebf8;
+  --chart-4: #5841e9;
+  --chart-5: #a3aebb;
+  --radius: 0.5rem;
+  --sidebar: #1a2935;
+  --sidebar-foreground: #f9f9ff;
+  --sidebar-primary: #06f6ff;
+  --sidebar-primary-foreground: #1a2935;
+  --sidebar-accent: #2e3343;
+  --sidebar-accent-foreground: #f9f9ff;
+  --sidebar-border: rgba(183, 183, 183, 0.2);
+  --sidebar-ring: #06f6ff;
+}
+
+.dark {
+  --background: #151d28;
+  --foreground: #f9f9ff;
+  --card: #1a2935;
+  --card-foreground: #f9f9ff;
+  --popover: #1a2935;
+  --popover-foreground: #f9f9ff;
+  --primary: #06f6ff;
+  --primary-foreground: #1a2935;
+  --secondary: #5b3ae8;
+  --secondary-foreground: #f9f9ff;
+  --muted: #2e3343;
+  --muted-foreground: #b7b7b7;
+  --accent: #06f6ff;
+  --accent-foreground: #1a2935;
+  --destructive: #d4183d;
+  --destructive-foreground: #ffffff;
+  --border: rgba(183, 183, 183, 0.2);
+  --input: #2e3343;
+  --ring: #06f6ff;
+  --font-weight-medium: 600;
+  --font-weight-normal: 400;
+  --chart-1: #06f6ff;
+  --chart-2: #5b3ae8;
+  --chart-3: #17ebf8;
+  --chart-4: #5841e9;
+  --chart-5: #a3aebb;
+  --sidebar: #1a2935;
+  --sidebar-foreground: #f9f9ff;
+  --sidebar-primary: #06f6ff;
+  --sidebar-primary-foreground: #1a2935;
+  --sidebar-accent: #2e3343;
+  --sidebar-accent-foreground: #f9f9ff;
+  --sidebar-border: rgba(183, 183, 183, 0.2);
+  --sidebar-ring: #06f6ff;
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-input-background: var(--input-background);
+  --color-switch-background: var(--switch-background);
+  --color-ring: var(--ring);
+  --color-chart-1: var(--chart-1);
+  --color-chart-2: var(--chart-2);
+  --color-chart-3: var(--chart-3);
+  --color-chart-4: var(--chart-4);
+  --color-chart-5: var(--chart-5);
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+  --color-sidebar: var(--sidebar);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-ring: var(--sidebar-ring);
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+
+  body {
+    @apply bg-background text-foreground;
+    font-family: 'Source Sans Pro', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+  }
+}
+
+/**
+ * Base typography with Source Sans Pro
+ */
+@layer base {
+  :where(:not(:has([class*=" text-"]), :not(:has([class^="text-"])))) {
+    h1 {
+      font-size: 28px;
+      font-weight: 700;
+      line-height: 1.3;
+      font-family: 'Source Sans Pro', sans-serif;
+    }
+
+    h2 {
+      font-size: 20px;
+      font-weight: 700;
+      line-height: 1.4;
+      font-family: 'Source Sans Pro', sans-serif;
+    }
+
+    h3 {
+      font-size: 16px;
+      font-weight: 600;
+      line-height: 1.4;
+      font-family: 'Source Sans Pro', sans-serif;
+    }
+
+    h4 {
+      font-size: 14px;
+      font-weight: 600;
+      line-height: 1.4;
+      font-family: 'Source Sans Pro', sans-serif;
+    }
+
+    p {
+      font-size: 14px;
+      font-weight: 400;
+      line-height: 1.5;
+      font-family: 'Source Sans Pro', sans-serif;
+    }
+
+    label {
+      font-size: 14px;
+      font-weight: 600;
+      line-height: 1.5;
+      font-family: 'Source Sans Pro', sans-serif;
+    }
+
+    button {
+      font-size: 12px;
+      font-weight: 600;
+      line-height: 1.5;
+      font-family: 'Source Sans Pro', sans-serif;
+    }
+
+    input {
+      font-size: 14px;
+      font-weight: 400;
+      line-height: 1.5;
+      font-family: 'Source Sans Pro', sans-serif;
+    }
+  }
+}
+
+html {
+  font-size: var(--font-size);
+}
+
+/* Custom gradient classes matching the design */
+.gradient-primary {
+  background: linear-gradient(135deg, #5841e9 0%, #17ebf8 100%);
+}
+
+.gradient-card {
+  background: linear-gradient(135deg, rgba(88, 65, 233, 0.1) 0%, rgba(23, 235, 248, 0.1) 100%);
+}
+
+.gradient-overlay {
+  background: linear-gradient(135deg, rgba(88, 65, 233, 0.7) 0%, rgba(23, 235, 248, 0.7) 100%);
+}
+
+/* Trending indicator */
+.trending-corner {
+  position: relative;
+  overflow: hidden;
+}
+
+.trending-corner::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 50px;
+  height: 60px;
+  background: linear-gradient(135deg, #5841e9 0%, #17ebf8 100%);
+  clip-path: polygon(0 0, 100% 0, 0 100%);
+  opacity: 0.7;
+  z-index: 1;
+}
