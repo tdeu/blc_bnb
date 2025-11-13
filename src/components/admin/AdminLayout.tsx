@@ -1,5 +1,5 @@
 import React from 'react';
-import { Shield, BarChart3, Users, FileCheck, Brain, Wallet, Coins } from 'lucide-react';
+import { Shield, BarChart3, Users, FileCheck, Clock, Wallet, Coins } from 'lucide-react';
 import { Button } from '../ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '../ui/card';
 import { Badge } from '../ui/badge';
@@ -23,7 +23,7 @@ const AdminLayout: React.FC<AdminLayoutProps> = ({
   const adminTabs = [
     { id: 'overview', label: 'Overview', icon: BarChart3 },
     { id: 'markets', label: 'Market Approval', icon: FileCheck },
-    { id: 'evidence', label: 'Evidence & Resolution', icon: Brain },
+    { id: 'resolution', label: 'Resolution Manager', icon: Clock },
     { id: 'treasury', label: 'Treasury', icon: Wallet },
     { id: 'tokens', label: 'Token Management', icon: Coins },
     { id: 'users', label: 'User Management', icon: Users },

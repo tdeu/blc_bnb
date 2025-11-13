@@ -9,7 +9,7 @@ import { ArrowLeft, Plus, Sparkles, Upload, X, Image } from 'lucide-react';
 import { toast } from 'sonner';
 import { BettingMarket } from './BettingMarkets';
 import { uploadMarketImage } from '../../utils/supabase';
-import { MARKET_CREATION, DISPUTE_PERIOD } from '../../config/constants';
+import { MARKET_CREATION } from '../../config/constants';
 import { validateMarketExpirationDate, debugTimeComparison } from '../../utils/timeUtils';
 
 interface CreateMarketProps {
@@ -451,11 +451,29 @@ export default function CreateMarket({ onBack, onCreateMarket, marketContext = '
           {marketContext === 'verify-truth' && (
             <div className="p-4 bg-blue-50 border border-blue-200 rounded-lg">
               <p className="text-sm text-blue-800">
-                💡 <strong>Past Event Submission:</strong> This event will be published as 'disputable' for {DISPUTE_PERIOD.HOURS} hours, allowing the community to provide evidence and challenge the outcome.
+                💡 <strong>Past Event Submission:</strong> This event will be automatically resolved by AI analysis.
                 No expiration date is needed since this concerns a past event.
               </p>
             </div>
           )}
+
+          {/* Collateral Notice */}
+          <div className="p-4 bg-gradient-to-r from-purple-50 to-blue-50 dark:from-purple-900/20 dark:to-blue-900/20 border border-purple-200 dark:border-purple-700 rounded-lg">
+            <div className="flex items-start gap-3">
+              <div className="flex-shrink-0 w-10 h-10 bg-purple-500 rounded-full flex items-center justify-center">
+                <span className="text-white text-lg">💰</span>
+              </div>
+              <div className="flex-1 space-y-1">
+                <p className="text-sm font-semibold text-purple-900 dark:text-purple-100">
+                  Market Creation Collateral
+                </p>
+                <p className="text-xs text-purple-700 dark:text-purple-300">
+                  Creating a market requires <strong>0.001 BNB</strong> collateral (~$0.60). This helps prevent spam and ensures quality markets.
+                  You can get testnet BNB from the <a href="https://testnet.bnbchain.org/faucet-smart" target="_blank" rel="noopener noreferrer" className="underline hover:text-purple-900">BNB Testnet Faucet</a>.
+                </p>
+              </div>
+            </div>
+          </div>
 
           {/* Create Button */}
           <div className="pt-4 space-y-2">
@@ -472,7 +490,7 @@ export default function CreateMarket({ onBack, onCreateMarket, marketContext = '
               ) : (
                 <>
                   <Sparkles className="h-4 w-4" />
-                  {marketContext === 'truth-markets' ? 'Create Truth Market' : 'Submit Past Event'}
+                  {marketContext === 'truth-markets' ? 'Create Truth Market (0.001 BNB)' : 'Submit Past Event (0.001 BNB)'}
                 </>
               )}
             </Button>

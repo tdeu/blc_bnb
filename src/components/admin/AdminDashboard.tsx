@@ -25,9 +25,6 @@ import {
   Target
 } from 'lucide-react';
 import { adminService, AdminStats } from '../../utils/adminService';
-import AdminDisputePanel from '../dispute/AdminDisputePanel';
-import { disputeService } from '../../utils/disputeService';
-import { MarketDispute } from '../../utils/supabase';
 import { AIAgentSimple } from '../ai/AIAgentSimple';
 import { approvedMarketsService } from '../../utils/approvedMarketsService';
 import { BettingMarket } from '../betting/BettingMarkets';
@@ -46,8 +43,6 @@ interface AdminOverviewProps {
 const AdminOverview: React.FC<AdminOverviewProps> = ({ userProfile }) => {
   const [stats, setStats] = useState<AdminStats | null>(null);
   const [loading, setLoading] = useState(true);
-  const [disputes, setDisputes] = useState<MarketDispute[]>([]);
-  const [disputesLoading, setDisputesLoading] = useState(false);
   const [markets, setMarkets] = useState<BettingMarket[]>([]);
   const [marketsLoading, setMarketsLoading] = useState(true);
   const [aiRecommendations, setAiRecommendations] = useState<any[]>([]);
@@ -57,7 +52,6 @@ const AdminOverview: React.FC<AdminOverviewProps> = ({ userProfile }) => {
 
   useEffect(() => {
     loadAdminStats();
-    loadDisputes();
     loadMarkets();
     loadAIRecommendations();
   }, []);
@@ -71,18 +65,6 @@ const AdminOverview: React.FC<AdminOverviewProps> = ({ userProfile }) => {
       console.error('Error loading admin stats:', error);
     } finally {
       setLoading(false);
-    }
-  };
-
-  const loadDisputes = async () => {
-    try {
-      setDisputesLoading(true);
-      const pendingDisputes = await disputeService.getPendingDisputes();
-      setDisputes(pendingDisputes);
-    } catch (error) {
-      console.error('Error loading disputes:', error);
-    } finally {
-      setDisputesLoading(false);
     }
   };
 
@@ -155,14 +137,12 @@ const AdminOverview: React.FC<AdminOverviewProps> = ({ userProfile }) => {
     }
   };
 
-  // Helper functions to categorize markets - mutually exclusive categories
-  // NOTE: expiresAt = when dispute period starts, NOT final expiration
+  // Helper functions to categorize markets - only two categories: Live and Expired
   const categorizeMarkets = (markets: BettingMarket[]) => {
     const now = new Date();
 
-    // Mutually exclusive categorization
-    const futureMarkets: BettingMarket[] = [];
-    const disputableMarkets: BettingMarket[] = [];
+    // Only two categories: Live and Expired
+    const liveMarkets: BettingMarket[] = [];
     const expiredMarkets: BettingMarket[] = [];
     const offlineMarkets: BettingMarket[] = [];
 
@@ -173,53 +153,24 @@ const AdminOverview: React.FC<AdminOverviewProps> = ({ userProfile }) => {
         return;
       }
 
-      // Future Markets: Active markets where dispute period hasn't started yet
-      if (market.status === 'active' && market.marketType === 'future') {
-        // If expiresAt is in the future, it's still a future market
-        const disputePeriodStarted = market.expiresAt && market.expiresAt <= now;
+      // Check if market has expired based on expiry date
+      const hasExpired = market.expiresAt && new Date(market.expiresAt).getTime() < now.getTime();
 
-        if (!disputePeriodStarted) {
-          futureMarkets.push(market);
-          return;
-        }
+      if (hasExpired || market.status === 'resolved') {
+        // Expired: Market has passed its expiry date or is resolved
+        expiredMarkets.push(market);
+      } else {
+        // Live: Market is still active (includes pending resolution if not yet expired)
+        liveMarkets.push(market);
       }
-
-      // Disputable Markets: Markets where dispute period has started but not resolved
-      if (
-        // Markets in active dispute states
-        market.status === 'pending_resolution' ||
-        market.status === 'disputing' ||
-        market.status === 'disputable' ||
-        // OR active markets where dispute period has started (expiresAt passed)
-        (market.status === 'active' && market.expiresAt && market.expiresAt <= now)
-      ) {
-        disputableMarkets.push(market);
-        return;
-      }
-
-      // Expired Markets: Everything else (resolved, present-type markets, etc.)
-      expiredMarkets.push(market);
     });
 
     return {
-      future: futureMarkets,
-      disputable: disputableMarkets,
+      live: liveMarkets,
       expired: expiredMarkets,
       offline: offlineMarkets,
       total: markets.length
     };
-  };
-
-  const handleReviewDispute = async (disputeId: string, decision: any) => {
-    try {
-      await disputeService.reviewDispute(disputeId, decision);
-      // Reload disputes after review
-      await loadDisputes();
-      await loadAdminStats(); // Update stats as well
-    } catch (error) {
-      console.error('Error reviewing dispute:', error);
-      throw error; // Re-throw to let the component handle the error
-    }
   };
 
   const handleOfflineMarket = async (market: BettingMarket) => {
@@ -395,28 +346,20 @@ const AdminOverview: React.FC<AdminOverviewProps> = ({ userProfile }) => {
       {(() => {
         const marketData = categorizeMarkets(markets);
         return (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             <StatCard
-              title="Future Markets"
-              value={marketData.future.length}
-              icon={Calendar}
-              trend={`${marketData.future.length} active betting markets`}
-              color="blue"
-            />
-
-            <StatCard
-              title="Disputable Markets"
-              value={marketData.disputable.length}
-              icon={Scale}
-              trend={`${marketData.disputable.length} markets in dispute period or resolution`}
-              color="yellow"
+              title="Live Markets"
+              value={marketData.live.length}
+              icon={Activity}
+              trend={`${marketData.live.length} active betting markets`}
+              color="green"
             />
 
             <StatCard
               title="Expired Markets"
               value={marketData.expired.length}
               icon={Timer}
-              trend={`${marketData.expired.length} total expired markets`}
+              trend={`${marketData.expired.length} resolved markets`}
               color="red"
             />
 
@@ -425,7 +368,7 @@ const AdminOverview: React.FC<AdminOverviewProps> = ({ userProfile }) => {
               value={marketData.total}
               icon={BarChart3}
               trend={`${marketData.total} total markets`}
-              color="default"
+              color="blue"
             />
           </div>
         );
@@ -499,46 +442,24 @@ const AdminOverview: React.FC<AdminOverviewProps> = ({ userProfile }) => {
 
         return (
           <div className="space-y-6">
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-              {/* Future Markets */}
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+              {/* Live Markets */}
               <Card>
                 <CardHeader>
                   <CardTitle className="flex items-center gap-2">
-                    <Calendar className="h-5 w-5" />
-                    Future Markets ({marketData.future.length})
+                    <Activity className="h-5 w-5 text-green-500" />
+                    Live Markets ({marketData.live.length})
                   </CardTitle>
                 </CardHeader>
                 <CardContent className="space-y-3 max-h-80 overflow-y-auto">
-                  {marketData.future.length > 0 ? (
-                    marketData.future.slice(0, 10).map(market => (
+                  {marketData.live.length > 0 ? (
+                    marketData.live.slice(0, 10).map(market => (
                       <MarketCard key={market.id} market={market} />
                     ))
                   ) : (
                     <div className="text-center py-4 text-muted-foreground">
-                      <Calendar className="h-8 w-8 mx-auto mb-2 opacity-50" />
-                      <p>No future markets</p>
-                    </div>
-                  )}
-                </CardContent>
-              </Card>
-
-              {/* Disputable Markets */}
-              <Card>
-                <CardHeader>
-                  <CardTitle className="flex items-center gap-2">
-                    <Scale className="h-5 w-5" />
-                    Disputable Markets ({marketData.disputable.length})
-                  </CardTitle>
-                </CardHeader>
-                <CardContent className="space-y-3 max-h-80 overflow-y-auto">
-                  {marketData.disputable.length > 0 ? (
-                    marketData.disputable.slice(0, 10).map(market => (
-                      <MarketCard key={market.id} market={market} showSyncButton={true} />
-                    ))
-                  ) : (
-                    <div className="text-center py-4 text-muted-foreground">
-                      <Scale className="h-8 w-8 mx-auto mb-2 opacity-50" />
-                      <p>No disputable markets</p>
+                      <Activity className="h-8 w-8 mx-auto mb-2 opacity-50" />
+                      <p>No live markets</p>
                     </div>
                   )}
                 </CardContent>
@@ -548,7 +469,7 @@ const AdminOverview: React.FC<AdminOverviewProps> = ({ userProfile }) => {
               <Card>
                 <CardHeader>
                   <CardTitle className="flex items-center gap-2">
-                    <Timer className="h-5 w-5" />
+                    <Timer className="h-5 w-5 text-red-500" />
                     Expired Markets ({marketData.expired.length})
                   </CardTitle>
                 </CardHeader>

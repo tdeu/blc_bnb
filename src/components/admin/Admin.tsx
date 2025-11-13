@@ -5,10 +5,10 @@ import { Button } from '../ui/button';
 import AdminLayout from './AdminLayout';
 import AdminOverview from './AdminDashboard';
 import MarketApproval from './MarketApproval';
-import EvidenceResolutionPanel from './EvidenceResolutionPanel';
-import TreasuryDashboard from './TreasuryDashboard';
+import ResolutionManager from './ResolutionManager';
+import UnifiedTreasuryDashboard from './UnifiedTreasuryDashboard';
 import { adminService } from '../../utils/adminService';
-import { useUser } from '../../contexts/UserContext';
+import { useUser} from '../../contexts/UserContext';
 import { toast } from 'sonner';
 
 interface AdminProps {
@@ -158,9 +158,9 @@ const Admin: React.FC<AdminProps> = ({
           />
         );
 
-      case 'evidence':
+      case 'resolution':
         return (
-          <EvidenceResolutionPanel
+          <ResolutionManager
             userProfile={{
               walletAddress: walletConnection.address,
               displayName: profile?.displayName
@@ -169,11 +169,7 @@ const Admin: React.FC<AdminProps> = ({
         );
 
       case 'treasury':
-        return (
-          <TreasuryDashboard
-            isAdmin={true}
-          />
-        );
+        return <UnifiedTreasuryDashboard isAdmin={true} />;
 
       case 'tokens':
         return (

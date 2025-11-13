@@ -1,7 +1,6 @@
 import { supabase, MarketResolution, ApprovedMarket, APIIntegrationLog } from './supabase';
 // Hedera imports removed - using BSC implementation
 // TODO: Reimplement AI resolution service for BSC if needed
-import { DISPUTE_PERIOD } from '../config/constants';
 
 interface APISource {
   name: string;
@@ -288,9 +287,9 @@ export class ResolutionService {
         throw lastError || new Error('All resolution sources failed (Hedera AI + API sources)');
       }
 
-      // Calculate dispute period end (72 hours from now by default)
+      // Calculate dispute period end (7 days from now by default)
       const disputePeriodEnd = new Date();
-      disputePeriodEnd.setMilliseconds(disputePeriodEnd.getTime() + DISPUTE_PERIOD.MILLISECONDS);
+      disputePeriodEnd.setMilliseconds(disputePeriodEnd.getTime() + (7 * 24 * 60 * 60 * 1000));
 
       // Create resolution record in database
       if (!supabase) {
@@ -333,286 +332,8 @@ export class ResolutionService {
     }
   }
 
-  // NEW: Two-stage resolution - Step 1: Preliminary resolve
-  async preliminaryResolveMarket(marketId: string, outcome: 'yes' | 'no'): Promise<{
-    transactionId?: string;
-    hcsTopicId?: string;
-  }> {
-    try {
-      console.log(`🤖 Starting preliminary resolution for market ${marketId}: ${outcome}`);
-
-      // Convert outcome to contract format (0=Unset, 1=Yes, 2=No)
-      const contractOutcome = outcome === 'yes' ? 1 : 2;
-
-      // Get market contract address from database
-      let marketContractAddress: string | null = null;
-      let txHash: string | undefined;
-
-      if (supabase) {
-        const { data: market, error } = await supabase
-          .from('approved_markets')
-          .select('contract_address')
-          .eq('id', marketId)
-          .single();
-
-        if (error) {
-          throw new Error(`Failed to fetch market: ${error.message}`);
-        }
-
-        marketContractAddress = market?.contract_address;
-      }
-
-      // CRITICAL: Contract address is REQUIRED
-      if (!marketContractAddress || marketContractAddress === '0x0000000000000000000000000000000000000000') {
-        throw new Error(`Market ${marketId} has no contract address - cannot resolve on blockchain`);
-      }
-
-      // CRITICAL: Use ADMIN signer, not user's MetaMask
-      console.log(`📞 Calling preliminaryResolve on contract: ${marketContractAddress}`);
-
-      const { getAdminSigner } = await import('./adminSigner');
-      const adminSigner = await getAdminSigner();
-
-      const ethers = await import('ethers');
-      const PREDICTION_MARKET_ABI = [
-        "function preliminaryResolve(uint8 outcome) external",
-        "event PreliminaryResolution(uint8 outcome, uint256 timestamp)",
-        "function marketInfo() view returns (bytes32 id, string question, address creator, uint256 endTime, uint8 status)"
-      ];
-
-      const marketContract = new ethers.Contract(marketContractAddress, PREDICTION_MARKET_ABI, adminSigner);
-
-      // CRITICAL: Fetch market end time from contract BEFORE resolving
-      // This ensures dispute period is calculated from market expiry, not resolution time
-      console.log(`📊 Fetching market end time from contract...`);
-      const marketInfo = await marketContract.marketInfo();
-      const marketEndTime = new Date(Number(marketInfo.endTime) * 1000);
-      console.log(`   Market ended at: ${marketEndTime.toISOString()}`);
-
-      // Call preliminaryResolve on blockchain
-      console.log(`🔐 Calling preliminaryResolve(${contractOutcome}) with admin signer...`);
-      const tx = await marketContract.preliminaryResolve(contractOutcome);
-
-      console.log(`⏳ Waiting for transaction confirmation... TX: ${tx.hash}`);
-      const receipt = await tx.wait();
-      txHash = receipt.hash;
-
-      console.log(`✅ Preliminary resolution confirmed on blockchain!`);
-      console.log(`   TX Hash: ${txHash}`);
-      console.log(`   Block: ${receipt.blockNumber}`);
-
-      // Parse events to get timestamp
-      let preliminaryResolveTime: Date | undefined;
-      for (const log of receipt.logs) {
-        try {
-          const parsedLog = marketContract.interface.parseLog(log);
-          if (parsedLog && parsedLog.name === 'PreliminaryResolution') {
-            preliminaryResolveTime = new Date(Number(parsedLog.args.timestamp) * 1000);
-            console.log(`   Preliminary resolve time from event: ${preliminaryResolveTime.toISOString()}`);
-            break;
-          }
-        } catch (e) {
-          // Skip unparseable logs
-        }
-      }
-
-      if (!preliminaryResolveTime) {
-        preliminaryResolveTime = new Date(); // Fallback to current time
-      }
-
-      // CRITICAL FIX: Calculate dispute period end from MARKET END TIME, not preliminary resolve time
-      // This ensures the 7-day evidence submission period is consistent and starts from market expiration
-      const disputePeriodEnd = new Date(marketEndTime.getTime() + DISPUTE_PERIOD.MILLISECONDS);
-
-      console.log(`⚖️  Dispute period calculation:`);
-      console.log(`   Market ended: ${marketEndTime.toISOString()}`);
-      console.log(`   Preliminary resolved: ${preliminaryResolveTime.toISOString()}`);
-      console.log(`   Dispute period ends: ${disputePeriodEnd.toISOString()} (7 days from market end)`);
-
-      // Update database to disputable status
-      if (supabase) {
-        const { getAdminAddress } = await import('./adminSigner');
-        const adminAddress = await getAdminAddress();
-
-        await supabase
-          .from('approved_markets')
-          .update({
-            status: 'disputable',
-            dispute_period_end: disputePeriodEnd.toISOString(),
-            resolution_data: {
-              preliminary_outcome: outcome,
-              preliminary_time: preliminaryResolveTime.toISOString(),
-              resolved_by: adminAddress,
-              transaction_id: txHash
-            }
-          })
-          .eq('id', marketId);
-
-        console.log(`✅ Database updated to 'disputable' status`);
-      }
-
-      // HCS recording removed (was Hedera-specific)
-      // BSC implementation relies on blockchain events and database
-      let hcsTransactionId: string | undefined;
-      console.log(`📝 Resolution recorded on BSC blockchain - HCS not used`);
-
-      console.log(`\n🎉 Preliminary resolution complete for market ${marketId}`);
-      console.log(`   Outcome: ${outcome.toUpperCase()}`);
-      console.log(`   Blockchain TX: ${txHash}`);
-      console.log(`   Dispute until: ${disputePeriodEnd.toLocaleString()}`);
-
-      return {
-        transactionId: txHash,
-        hcsTopicId: undefined // HCS not used in BSC version
-      };
-
-    } catch (error) {
-      console.error('❌ Error in preliminary resolution:', error);
-      throw error;
-    }
-  }
-
-  // NEW: Two-stage resolution - Step 2: Final resolve with confidence
-  async finalResolveMarket(marketId: string, outcome: 'yes' | 'no', confidence: number): Promise<{
-    transactionId?: string;
-    consensusTimestamp: Date;
-  }> {
-    try {
-      console.log(`🏁 Starting final resolution for market ${marketId}: ${outcome} (confidence: ${confidence}%)`);
-
-      // Validate confidence score (must be 0-100)
-      if (confidence < 0 || confidence > 100) {
-        throw new Error(`Invalid confidence score: ${confidence}. Must be between 0 and 100.`);
-      }
-
-      // Convert outcome to contract format (0=Unset, 1=Yes, 2=No)
-      const contractOutcome = outcome === 'yes' ? 1 : 2;
-
-      // Get market contract address from database
-      let marketContractAddress: string | null = null;
-      let txHash: string | undefined;
-
-      if (supabase) {
-        const { data: market, error } = await supabase
-          .from('approved_markets')
-          .select('contract_address, status')
-          .eq('id', marketId)
-          .single();
-
-        if (error) {
-          throw new Error(`Failed to fetch market: ${error.message}`);
-        }
-
-        marketContractAddress = market?.contract_address;
-
-        // Verify market is in correct state
-        if (market?.status !== 'disputable' && market?.status !== 'pending_resolution') {
-          console.warn(`⚠️  Market ${marketId} is in '${market?.status}' state, expected 'disputable'. Proceeding anyway...`);
-        }
-      }
-
-      // CRITICAL: Contract address is REQUIRED
-      if (!marketContractAddress || marketContractAddress === '0x0000000000000000000000000000000000000000') {
-        throw new Error(`Market ${marketId} has no contract address - cannot finalize on blockchain`);
-      }
-
-      // CRITICAL: Use ADMIN signer
-      console.log(`📞 Calling finalResolve on contract: ${marketContractAddress}`);
-
-      const { getAdminSigner, getAdminAddress } = await import('./adminSigner');
-      const adminSigner = await getAdminSigner();
-      const adminAddress = await getAdminAddress();
-
-      const ethers = await import('ethers');
-      const PREDICTION_MARKET_ABI = [
-        "function finalResolve(uint8 outcome, uint256 _confidenceScore) external",
-        "event FinalResolution(uint8 outcome, uint256 confidenceScore, uint256 timestamp)"
-      ];
-
-      const marketContract = new ethers.Contract(marketContractAddress, PREDICTION_MARKET_ABI, adminSigner);
-
-      // Call finalResolve on blockchain
-      console.log(`🔐 Calling finalResolve(${contractOutcome}, ${confidence}) with admin signer...`);
-      const tx = await marketContract.finalResolve(contractOutcome, confidence);
-
-      console.log(`⏳ Waiting for transaction confirmation... TX: ${tx.hash}`);
-      const receipt = await tx.wait();
-      txHash = receipt.hash;
-
-      console.log(`✅ Final resolution confirmed on blockchain!`);
-      console.log(`   TX Hash: ${txHash}`);
-      console.log(`   Block: ${receipt.blockNumber}`);
-
-      // Parse events to get timestamp
-      let finalResolveTime: Date | undefined;
-      for (const log of receipt.logs) {
-        try {
-          const parsedLog = marketContract.interface.parseLog(log);
-          if (parsedLog && parsedLog.name === 'FinalResolution') {
-            finalResolveTime = new Date(Number(parsedLog.args.timestamp) * 1000);
-            console.log(`   Final resolve time from event: ${finalResolveTime.toISOString()}`);
-            console.log(`   Final confidence: ${parsedLog.args.confidenceScore}%`);
-            break;
-          }
-        } catch (e) {
-          // Skip unparseable logs
-        }
-      }
-
-      if (!finalResolveTime) {
-        finalResolveTime = new Date(); // Fallback to current time
-      }
-
-      // Update database to resolved status
-      if (supabase) {
-        await supabase
-          .from('approved_markets')
-          .update({
-            status: 'resolved',
-            resolution_data: {
-              outcome,
-              confidence: `${confidence}%`,
-              resolved_by: adminAddress,
-              final_resolution_time: finalResolveTime.toISOString(),
-              transaction_id: txHash
-            }
-          })
-          .eq('id', marketId);
-
-        console.log(`✅ Database updated to 'resolved' status`);
-      }
-
-      // HCS recording removed (was Hedera-specific)
-      // BSC implementation relies on blockchain events and database
-      let hcsTransactionId: string | undefined;
-      console.log(`📝 Final resolution recorded on BSC blockchain - HCS not used`);
-
-      // CRITICAL: Update all user bets for this market now that it's resolved
-      console.log(`\n💰 Updating user bets for resolved market...`);
-      try {
-        const { betResolutionService } = await import('./betResolutionService');
-        const updatedBetCount = await betResolutionService.updateBetsForResolvedMarket(marketId, outcome);
-        console.log(`   ✅ Updated ${updatedBetCount} bet(s) with win/loss status and payouts`);
-      } catch (betError) {
-        console.error('   ⚠️  Failed to update bets (non-critical):', betError);
-      }
-
-      console.log(`\n🎉 Final resolution complete for market ${marketId}`);
-      console.log(`   Outcome: ${outcome.toUpperCase()}`);
-      console.log(`   Confidence: ${confidence}%`);
-      console.log(`   Blockchain TX: ${txHash}`);
-      console.log(`   Payouts are now available!`);
-
-      return {
-        transactionId: txHash,
-        consensusTimestamp: finalResolveTime
-      };
-
-    } catch (error) {
-      console.error('❌ Error in final resolution:', error);
-      throw error;
-    }
-  }
+  // DEPRECATED: Two-stage resolution methods removed - Use resolveMarketWithAI() instead
+  // preliminaryResolveMarket() and finalResolveMarket() have been replaced with single-step automated AI resolution
 
   async finalizeResolution(marketId: string, adminDecision?: {
     outcome: 'yes' | 'no';
@@ -689,12 +410,12 @@ export class ResolutionService {
   }
 
   // Dispute Period Management
-  async startDisputePeriod(marketId: string, durationHours: number = DISPUTE_PERIOD.HOURS): Promise<{
+  async startDisputePeriod(marketId: string, durationHours: number = 168): Promise<{
     topicId: string;
     disputePeriodEnd: Date;
   }> {
     const disputePeriodEnd = new Date();
-    disputePeriodEnd.setTime(disputePeriodEnd.getTime() + DISPUTE_PERIOD.MILLISECONDS);
+    disputePeriodEnd.setTime(disputePeriodEnd.getTime() + (7 * 24 * 60 * 60 * 1000));
 
     // Update market status to indicate dispute period
     if (supabase) {
@@ -828,6 +549,133 @@ export class ResolutionService {
         });
     } catch (error) {
       console.warn('Failed to log API call:', error);
+    }
+  }
+
+  // NEW: Single-stage automated AI resolution (replaces preliminary + final)
+  async resolveMarketWithAI(marketId: string, outcome: 'yes' | 'no', confidence: number): Promise<{
+    transactionId?: string;
+    consensusTimestamp: Date;
+  }> {
+    try {
+      console.log(`🤖 Starting automated AI resolution for market ${marketId}: ${outcome} (${confidence}% confidence)`);
+
+      // Validate confidence score (must be 0-100)
+      if (confidence < 0 || confidence > 100) {
+        throw new Error(`Invalid confidence score: ${confidence}. Must be between 0 and 100.`);
+      }
+
+      // Convert outcome to contract format (0=Unset, 1=Yes, 2=No)
+      const contractOutcome = outcome === 'yes' ? 1 : 2;
+
+      // Get market contract address from database
+      let marketContractAddress: string | null = null;
+      let txHash: string | undefined;
+
+      if (supabase) {
+        const { data: market, error } = await supabase
+          .from('approved_markets')
+          .select('contract_address, status')
+          .eq('id', marketId)
+          .single();
+
+        if (error) {
+          throw new Error(`Failed to fetch market: ${error.message}`);
+        }
+
+        if (market?.status !== 'open' && market?.status !== 'expired') {
+          throw new Error(`Market ${marketId} has status '${market?.status}' - can only resolve open/expired markets`);
+        }
+
+        marketContractAddress = market?.contract_address;
+      }
+
+      // CRITICAL: Contract address is REQUIRED
+      if (!marketContractAddress || marketContractAddress === '0x0000000000000000000000000000000000000000') {
+        throw new Error(`Market ${marketId} has no contract address - cannot resolve on blockchain`);
+      }
+
+      // CRITICAL: Use ADMIN signer, not user's MetaMask
+      console.log(`📞 Calling resolveMarketWithAI on contract: ${marketContractAddress}`);
+
+      const { getAdminSigner } = await import('./adminSigner');
+      const adminSigner = await getAdminSigner();
+
+      const ethers = await import('ethers');
+      const PREDICTION_MARKET_ABI = [
+        "function resolveMarketWithAI(uint8 outcome, uint256 confidenceScore) external",
+        "event MarketResolution(uint8 outcome, uint256 confidenceScore, uint256 timestamp)",
+        "function marketInfo() view returns (bytes32 id, string question, address creator, uint256 endTime, uint8 status)"
+      ];
+
+      const marketContract = new ethers.Contract(marketContractAddress, PREDICTION_MARKET_ABI, adminSigner);
+
+      // Call resolveMarketWithAI on blockchain
+      console.log(`🔐 Calling resolveMarketWithAI(${contractOutcome}, ${confidence}) with admin signer...`);
+      const tx = await marketContract.resolveMarketWithAI(contractOutcome, confidence);
+
+      console.log(`⏳ Waiting for transaction confirmation... TX: ${tx.hash}`);
+      const receipt = await tx.wait();
+      txHash = receipt.hash;
+
+      console.log(`✅ AI resolution confirmed on blockchain!`);
+      console.log(`   TX Hash: ${txHash}`);
+      console.log(`   Block: ${receipt.blockNumber}`);
+
+      // Parse events to get timestamp
+      let resolutionTime = new Date();
+      for (const log of receipt.logs) {
+        try {
+          const parsedLog = marketContract.interface.parseLog(log);
+          if (parsedLog && parsedLog.name === 'MarketResolution') {
+            resolutionTime = new Date(Number(parsedLog.args.timestamp) * 1000);
+            console.log(`   Resolution time from event: ${resolutionTime.toISOString()}`);
+            break;
+          }
+        } catch (e) {
+          // Skip unparseable logs
+        }
+      }
+
+      // Update database to resolved status
+      if (supabase) {
+        const { getAdminAddress } = await import('./adminSigner');
+        const adminAddress = await getAdminAddress();
+
+        await supabase
+          .from('approved_markets')
+          .update({
+            status: 'resolved',
+            resolution_outcome: outcome,
+            ai_confidence_score: confidence,
+            resolved_at: resolutionTime.toISOString(),
+            resolution_data: {
+              outcome: outcome,
+              confidence: confidence,
+              resolved_by: adminAddress,
+              resolved_at: resolutionTime.toISOString(),
+              transaction_id: txHash,
+              method: 'automated_ai'
+            }
+          })
+          .eq('id', marketId);
+
+        console.log(`✅ Database updated to 'resolved' status`);
+      }
+
+      console.log(`\n🎉 Automated AI resolution complete for market ${marketId}`);
+      console.log(`   Outcome: ${outcome.toUpperCase()}`);
+      console.log(`   Confidence: ${confidence}%`);
+      console.log(`   Blockchain TX: ${txHash}`);
+
+      return {
+        transactionId: txHash,
+        consensusTimestamp: resolutionTime
+      };
+
+    } catch (error) {
+      console.error('❌ Error in automated AI resolution:', error);
+      throw error;
     }
   }
 }

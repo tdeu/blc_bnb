@@ -106,7 +106,17 @@
       "WebFetch(domain:github.com)",
       "Bash(git credential-cache:*)",
       "Bash(git config:*)",
-      "Bash(git filter-branch:*)"
+      "Bash(git filter-branch:*)",
+      "Bash(nul)",
+      "Bash(if [ -z \"$VITE_HEDERA_PRIVATE_KEY_EVM\" ])",
+      "Bash(then echo \"Private key NOT set\")",
+      "Bash(else echo \"Private key is set\")",
+      "Bash(git checkout:*)",
+      "Bash(BUYCAST_ADDRESS=0x810A8F9a1a07E09919FE92Ea2a6008840e1E749b node:*)",
+      "Bash(BUYCAST_ADDRESS=0x45fEE9DAcF3Beb2C0C67dF057D068c0003C53B79 node:*)",
+      "Bash(C:UsersthomaBureaublockcast_newsrccomponentsuitabs.tsx 2)",
+      "Bash(.env)",
+      "WebFetch(domain:docs.perplexity.ai)"
     ],
     "deny": [],
     "ask": []

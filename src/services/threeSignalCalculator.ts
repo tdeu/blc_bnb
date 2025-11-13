@@ -7,7 +7,8 @@ import { ethers } from 'ethers';
 import { supabase } from '../utils/supabase';
 // HEDERA_CONFIG removed - using BSC configuration
 import { newsApiService } from './newsApiService';
-import { calculateEvidenceSignalScore, getUserBetPosition, detectEvidencePosition, getWalletAge } from './evidenceBetPositionService';
+// Evidence system removed - using automated AI resolution
+// import { calculateEvidenceSignalScore, getUserBetPosition, detectEvidencePosition, getWalletAge } from './evidenceBetPositionService';
 import { betTrackingService } from './betTrackingService';
 
 // BSC Testnet RPC

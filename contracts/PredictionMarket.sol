@@ -14,10 +14,10 @@ contract PredictionMarket {
     enum MarketStatus {
         Submited,
         Open,
-        PendingResolution, // 🆕 Marché fermé, en attente résolution finale
+        PendingResolution, // Market closed, awaiting AI resolution
         Resolved,
         Canceled,
-        Refunded // 🆕 Marché refunded (confidence never reached threshold)
+        Refunded // Market refunded (low confidence or failed resolution)
     }
 
     enum Outcome {
@@ -33,8 +33,7 @@ contract PredictionMarket {
         address changedBy
     );
 
-    event PreliminaryResolution(Outcome outcome, uint256 timestamp);
-    event FinalResolution(
+    event MarketResolution(
         Outcome outcome,
         uint256 confidenceScore,
         uint256 timestamp
@@ -64,11 +63,7 @@ contract PredictionMarket {
     mapping(address => uint256) public noBalance;
 
     Outcome public resolvedOutcome;
-
-    // 🆕 Variables pour système de résolution en deux étapes
-    Outcome public preliminaryOutcome;
     uint256 public confidenceScore;
-    uint256 public preliminaryResolveTime;
 
     modifier onlyAdmin() {
         require(adminManager.isAdmin(msg.sender), "Not admin");
@@ -93,7 +88,7 @@ contract PredictionMarket {
         uint256 _endTime,
         address _collateral,
         address _adminManager,
-        address _treasury,
+        address payable _treasury,
         address _betNFT,
         uint256 _protocolFeeRate
     ) {
@@ -203,29 +198,60 @@ contract PredictionMarket {
         // NFT minting is now user-initiated via mintNFTForPosition()
     }
 
-    // 🆕 Première résolution : ferme juste le marché
-    function preliminaryResolve(Outcome outcome) external onlyAdmin {
-        require(block.timestamp >= marketInfo.endTime, "Too early");
-        require(marketInfo.status == MarketStatus.Open, "Invalid status");
+    /**
+     * @dev Unified bet placement function (for frontend compatibility)
+     * @param isYes true for YES, false for NO
+     * @param shares Number of shares to buy
+     */
+    function placeBet(bool isYes, uint256 shares) external isOpen {
+        if (isYes) {
+            uint256 cost = getPriceYes(shares);
+            require(cost > 0, "Invalid cost");
 
-        marketInfo.status = MarketStatus.PendingResolution;
-        preliminaryOutcome = outcome;
-        preliminaryResolveTime = block.timestamp;
+            require(
+                collateral.transferFrom(msg.sender, address(this), cost),
+                "Transfer failed"
+            );
 
-        emit PreliminaryResolution(outcome, block.timestamp);
+            yesShares += shares;
+            reserve += cost;
+            yesBalance[msg.sender] += shares;
+        } else {
+            uint256 cost = getPriceNo(shares);
+            require(cost > 0, "Invalid cost");
+
+            require(
+                collateral.transferFrom(msg.sender, address(this), cost),
+                "Transfer failed"
+            );
+
+            noShares += shares;
+            reserve += cost;
+            noBalance[msg.sender] += shares;
+        }
+
+        // NFT minting is now user-initiated via mintNFTForPosition()
     }
 
-    // 🆕 Résolution finale : toute la logique de payout + rewards
-    function finalResolve(
+    /**
+     * @dev Resolve market with AI-determined outcome
+     * First sets market to PendingResolution, then immediately resolves with outcome
+     * @param outcome The final outcome (Yes/No)
+     * @param _confidenceScore AI confidence score (0-100)
+     */
+    function resolveMarketWithAI(
         Outcome outcome,
         uint256 _confidenceScore
     ) external onlyAdmin {
-        require(
-            marketInfo.status == MarketStatus.PendingResolution,
-            "Must be in pending resolution"
-        );
+        require(block.timestamp >= marketInfo.endTime, "Market not expired yet");
+        require(marketInfo.status == MarketStatus.Open, "Market not open");
+        require(outcome != Outcome.Unset, "Invalid outcome");
         require(_confidenceScore <= 100, "Confidence score must be <= 100");
 
+        // Transition to pending resolution first
+        marketInfo.status = MarketStatus.PendingResolution;
+
+        // Then immediately resolve
         marketInfo.status = MarketStatus.Resolved;
         resolvedOutcome = outcome;
         confidenceScore = _confidenceScore;
@@ -246,7 +272,7 @@ contract PredictionMarket {
         // Reward creator with CAST tokens only after successful resolution
         factory.rewardCreator(marketInfo.creator);
 
-        emit FinalResolution(outcome, _confidenceScore, block.timestamp);
+        emit MarketResolution(outcome, _confidenceScore, block.timestamp);
     }
 
     // 🆕 Refund all bets (for markets that never reached confidence threshold)
@@ -292,30 +318,6 @@ contract PredictionMarket {
         require(collateral.transfer(msg.sender, refundAmount), "Refund transfer failed");
     }
 
-    // DEPRECATED: Utiliser preliminaryResolve() puis finalResolve()
-    function resolveMarket(Outcome outcome) external onlyAdmin {
-        require(block.timestamp >= marketInfo.endTime, "Too early");
-        require(marketInfo.status == MarketStatus.Open, "Invalid status");
-
-        marketInfo.status = MarketStatus.Resolved;
-        resolvedOutcome = outcome;
-
-        // Calculate and send protocol fees (configurable %)
-        uint256 totalReserve = reserve;
-        uint256 protocolFees = (totalReserve * protocolFeeRate) / 10000;
-
-        if (protocolFees > 0) {
-            require(
-                collateral.approve(address(treasury), protocolFees),
-                "Approval failed"
-            );
-            treasury.receiveFees(address(collateral), protocolFees);
-            reserve -= protocolFees;
-        }
-
-        // Reward creator with CAST tokens only after successful resolution
-        factory.rewardCreator(marketInfo.creator);
-    }
 
     function redeem() external {
         require(marketInfo.status == MarketStatus.Resolved, "Not resolved");
@@ -441,14 +443,10 @@ contract PredictionMarket {
         probNo = 100 - probYes; // Garantit que probYes + probNo = 100
     }
 
-    // === FONCTIONS UTILITAIRES POUR SYSTÈME DE RÉSOLUTION ===
+    // === UTILITY FUNCTIONS ===
 
     function isPendingResolution() external view returns (bool) {
         return marketInfo.status == MarketStatus.PendingResolution;
-    }
-
-    function getPreliminaryOutcome() external view returns (Outcome) {
-        return preliminaryOutcome;
     }
 
     function getConfidenceScore() external view returns (uint256) {

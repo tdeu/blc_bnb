@@ -12,7 +12,6 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '.
 import { toast } from 'sonner';
 import { useLanguage } from '../shared/LanguageContext';
 import ShareModal from '../shared/ShareModal';
-import { DISPUTE_PERIOD } from '../../config/constants';
 
 export interface BettingMarket {
   id: string;
@@ -39,7 +38,7 @@ export interface BettingMarket {
   noOdds: number;
   totalCasters: number;
   expiresAt: Date;
-  status: 'active' | 'pending_resolution' | 'disputing' | 'resolved' | 'disputed_resolution' | 'locked' | 'disputable' | 'offline';
+  status: 'active' | 'pending_resolution' | 'resolved' | 'locked' | 'offline';
   resolution?: 'yes' | 'no';
   trending: boolean;
   imageUrl?: string;
@@ -47,7 +46,7 @@ export interface BettingMarket {
   region?: string;
   marketType: 'present' | 'future';
   confidenceLevel: 'high' | 'medium' | 'low';
-  // Resolution system fields
+  // Resolution system fields (simplified)
   resolution_data?: {
     outcome?: 'yes' | 'no';
     source?: string;
@@ -56,12 +55,8 @@ export interface BettingMarket {
     final_outcome?: 'yes' | 'no';
     resolved_by?: 'api' | 'admin' | 'contract';
     admin_notes?: string;
-    hcs_topic_id?: string;
     transaction_id?: string;
-    consensus_timestamp?: string;
   };
-  dispute_count?: number;
-  dispute_period_end?: string;
 }
 
 interface BettingMarketsProps {
@@ -90,11 +85,7 @@ export default function BettingMarkets({ onPlaceBet, userBalance, onMarketSelect
   const [selectedCategory, setSelectedCategory] = useState('all');
   const [selectedCountry, setSelectedCountry] = useState('all');
   const [sortBy, setSortBy] = useState('trending'); // trending, recent, popular
-  const [marketTypeFilter, setMarketTypeFilter] = useState('all'); // all, active, disputable
-  const [showDisputeDialog, setShowDisputeDialog] = useState(false);
-  const [disputeMarket, setDisputeMarket] = useState<BettingMarket | null>(null);
-  const [disputeReason, setDisputeReason] = useState('');
-  const [disputeEvidence, setDisputeEvidence] = useState('');
+  const [marketTypeFilter, setMarketTypeFilter] = useState('all'); // all, active, pending, resolved
   const { language } = useLanguage();
 
   // Ensure all markets have safe default values to prevent crashes
@@ -129,14 +120,14 @@ export default function BettingMarkets({ onPlaceBet, userBalance, onMarketSelect
     const now = new Date();
     const isExpired = market.expiresAt && market.expiresAt <= now;
     const isActive = market.status === 'active' && !isExpired && market.marketType === 'future';
-    const isDisputable = (market.status === 'pending_resolution' || market.status === 'disputing' ||
-                         market.status === 'disputable' || isExpired) && market.status !== 'resolved';
 
     let matchesMarketType = true;
     if (marketTypeFilter === 'active') {
       matchesMarketType = isActive;
-    } else if (marketTypeFilter === 'disputable') {
-      matchesMarketType = isDisputable;
+    } else if (marketTypeFilter === 'pending') {
+      matchesMarketType = market.status === 'pending_resolution';
+    } else if (marketTypeFilter === 'resolved') {
+      matchesMarketType = market.status === 'resolved';
     }
 
     // Status filtering based on statusFilter prop and unified mode
@@ -155,7 +146,6 @@ export default function BettingMarkets({ onPlaceBet, userBalance, onMarketSelect
                          isExpired ||
                          // Markets in resolution process
                          market.status === 'pending_resolution' ||
-                         market.status === 'disputing' ||
                          market.status === 'resolved'
                        ));
     }
@@ -229,27 +219,7 @@ export default function BettingMarkets({ onPlaceBet, userBalance, onMarketSelect
     setShowShareModal(true);
   };
 
-  const handleDispute = (market: BettingMarket) => {
-    setDisputeMarket(market);
-    setDisputeReason('');
-    setDisputeEvidence('');
-    setShowDisputeDialog(true);
-  };
-
-  const submitDispute = async () => {
-    if (!disputeMarket || !disputeReason.trim()) {
-      toast.error('Please provide a reason for the dispute');
-      return;
-    }
-
-    try {
-      // TODO: Submit dispute to backend
-      toast.success('Dispute submitted successfully. It will be reviewed by moderators.');
-      setShowDisputeDialog(false);
-    } catch (error) {
-      toast.error('Failed to submit dispute');
-    }
-  };
+  // Dispute handlers removed - no longer using dispute system
 
   const isMarketLive = (market: BettingMarket): boolean => {
     const now = new Date();
@@ -258,58 +228,27 @@ export default function BettingMarkets({ onPlaceBet, userBalance, onMarketSelect
            market.expiresAt && market.expiresAt > now;
   };
 
-  const isMarketDisputable = (market: BettingMarket): boolean => {
-    if (market.status === 'resolved') return false;
-
-    const now = new Date();
-
-    // Check if market has resolution data with confidence score
-    const hasConfidenceData = market.resolution_data &&
-                              (market.resolution_data as any).finalConfidence !== undefined;
-    const confidenceScore = hasConfidenceData
-      ? (market.resolution_data as any).finalConfidence
-      : 0;
-
-    // Markets remain disputable if:
-    // 1. They are in disputable/pending_resolution/disputing status
-    // 2. OR they have expired but confidence < 80% (regardless of dispute period end)
-    // 3. Until confidence reaches 80% OR 30 days have passed (refund threshold)
-
-    const isExpired = market.expiresAt && market.expiresAt <= now;
-    const hasReachedConfidenceThreshold = confidenceScore >= 80;
-
-    // If confidence has reached 80%, use the original dispute period logic
-    if (hasReachedConfidenceThreshold && market.dispute_period_end) {
-      const disputePeriodEnd = new Date(market.dispute_period_end);
-      return now <= disputePeriodEnd;
-    }
-
-    // If confidence is still below 80%, keep market disputable
-    // (regardless of how long it's been since expiration)
-    return (
-      market.status === 'pending_resolution' ||
-      market.status === 'disputing' ||
-      market.status === 'disputable' ||
-      (isExpired && !hasReachedConfidenceThreshold && market.status !== 'resolved')
-    );
-  };
 
   const isMarketExpired = (market: BettingMarket): boolean => {
     return market.status === 'resolved' ||
            (market.dispute_period_end && new Date() > new Date(market.dispute_period_end));
   };
 
-  const getMarketPhase = (market: BettingMarket): 'live' | 'disputable' | 'expired' => {
-    if (isMarketLive(market)) return 'live';
-    if (isMarketDisputable(market)) return 'disputable';
-    return 'expired';
+  const getMarketPhase = (market: BettingMarket): 'live' | 'expired' => {
+    // Check if market is truly expired (past expiry date)
+    const now = new Date();
+    const hasExpired = market.expiresAt && new Date(market.expiresAt).getTime() < now.getTime();
+
+    if (hasExpired || market.status === 'resolved') {
+      return 'expired';
+    }
+    return 'live';
   };
 
   const getMarketStatusLabel = (market: BettingMarket): string => {
     const phase = getMarketPhase(market);
     switch (phase) {
       case 'live': return 'Live';
-      case 'disputable': return 'Disputable';
       case 'expired': return 'Expired';
       default: return 'Unknown';
     }
@@ -319,7 +258,6 @@ export default function BettingMarkets({ onPlaceBet, userBalance, onMarketSelect
     const phase = getMarketPhase(market);
     switch (phase) {
       case 'live': return 'bg-green-500/20 text-green-400 border-green-500/30';
-      case 'disputable': return 'bg-yellow-500/20 text-yellow-400 border-yellow-500/30';
       case 'expired': return 'bg-gray-500/20 text-gray-400 border-gray-500/30';
       default: return 'bg-gray-500/20 text-gray-400 border-gray-500/30';
     }
@@ -413,7 +351,6 @@ export default function BettingMarkets({ onPlaceBet, userBalance, onMarketSelect
               <SelectContent>
                 <SelectItem value="all">All Types</SelectItem>
                 <SelectItem value="active">Active Markets</SelectItem>
-                <SelectItem value="disputable">Disputable Markets</SelectItem>
               </SelectContent>
             </Select>
           </div>
@@ -425,7 +362,6 @@ export default function BettingMarkets({ onPlaceBet, userBalance, onMarketSelect
               <span className="text-sm font-medium text-muted-foreground">
                 {sortedMarkets.length} {
                   marketTypeFilter === 'active' ? 'Active' :
-                  marketTypeFilter === 'disputable' ? 'Disputable' :
                   'Total'
                 } Markets
               </span>
@@ -491,9 +427,16 @@ export default function BettingMarkets({ onPlaceBet, userBalance, onMarketSelect
 
               <CardHeader className="pb-3 px-4 pt-4">
                 <div className="flex items-start justify-between gap-2 mb-3">
-                  <Badge variant="secondary" className="text-xs shrink-0 bg-slate-700 text-white border border-gray-400 font-semibold rounded-lg px-4 py-2 shadow-sm">
-                    {market.category}
-                  </Badge>
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <Badge variant="secondary" className="text-xs shrink-0 bg-slate-700 text-white border border-gray-400 font-semibold rounded-lg px-4 py-2 shadow-sm">
+                      {market.category}
+                    </Badge>
+                    {market.expiresAt && new Date(market.expiresAt).getTime() < new Date().getTime() && (
+                      <Badge variant="destructive" className="text-xs shrink-0 font-semibold">
+                        Expired
+                      </Badge>
+                    )}
+                  </div>
                   <Button
                     variant="ghost"
                     size="sm"
@@ -580,74 +523,6 @@ export default function BettingMarkets({ onPlaceBet, userBalance, onMarketSelect
                             <TrendingDown className="h-3 w-3 mr-1" />
                             NO {market.noOdds.toFixed(2)}x
                           </Button>
-                        </div>
-                      );
-
-                    case 'disputable':
-                      // Phase 2: Disputable markets - Show "DISPUTABLE" badge, no odds, clicking goes to evidence submission
-                      return (
-                        <div className="space-y-2">
-                          {/* DISPUTABLE Badge */}
-                          <div className="flex justify-center">
-                            <Badge className={`text-sm font-bold px-4 py-2 ${statusColor} border-2 rounded-full shadow-md`}>
-                              🔍 DISPUTABLE
-                            </Badge>
-                          </div>
-
-                          {/* Time remaining for dispute period */}
-                          {(() => {
-                            // Priority: dispute_period_end > expired_at + 7 days > expiresAt + 7 days
-                            let disputeEnd: Date;
-                            if (market.dispute_period_end) {
-                              disputeEnd = new Date(market.dispute_period_end);
-                            } else if ((market as any).expired_at) {
-                              disputeEnd = new Date(new Date((market as any).expired_at).getTime() + DISPUTE_PERIOD.MILLISECONDS);
-                            } else {
-                              // Fallback for old markets: use expiresAt
-                              disputeEnd = new Date((market.expiresAt?.getTime() || Date.now()) + DISPUTE_PERIOD.MILLISECONDS);
-                            }
-                            const now = new Date();
-                            const timeLeft = disputeEnd.getTime() - now.getTime();
-
-                            if (timeLeft > 0) {
-                              const daysLeft = Math.floor(timeLeft / (1000 * 60 * 60 * 24));
-                              const hoursLeft = Math.floor((timeLeft % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60));
-
-                              return (
-                                <div className="text-center text-xs text-yellow-600 font-medium">
-                                  ⏰ {daysLeft > 0 ? `${daysLeft}d ${hoursLeft}h` : `${hoursLeft}h`} to dispute
-                                </div>
-                              );
-                            } else {
-                              return (
-                                <div className="text-center text-xs text-gray-600 font-medium">
-                                  ⏱️ Dispute period ended
-                                </div>
-                              );
-                            }
-                          })()}
-
-                          {/* Evidence submission hint */}
-                          <div className="text-center text-xs text-muted-foreground">
-                            Click to submit evidence
-                          </div>
-
-                          {/* Show AI resolution if available */}
-                          {market.resolution_data?.outcome && (
-                            <div className="text-center">
-                              <div className="text-xs text-muted-foreground">AI Resolution:</div>
-                              <Badge
-                                variant="outline"
-                                className={`text-xs mt-1 ${
-                                  market.resolution_data.outcome === 'yes'
-                                    ? 'bg-green-100 text-green-700 border-green-200'
-                                    : 'bg-red-100 text-red-700 border-red-200'
-                                }`}
-                              >
-                                {market.resolution_data.outcome.toUpperCase()}
-                              </Badge>
-                            </div>
-                          )}
                         </div>
                       );
 
@@ -765,60 +640,6 @@ export default function BettingMarkets({ onPlaceBet, userBalance, onMarketSelect
             <AlertDialogCancel>Cancel</AlertDialogCancel>
             <AlertDialogAction onClick={handlePlaceBet}>
               {!walletConnected ? 'Connect Wallet' : 'Cast Position'}
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
-
-      {/* Dispute Dialog */}
-      <AlertDialog open={showDisputeDialog} onOpenChange={setShowDisputeDialog}>
-        <AlertDialogContent className="max-w-md">
-          <AlertDialogHeader>
-            <AlertDialogTitle>Dispute Market Resolution</AlertDialogTitle>
-            <AlertDialogDescription className="space-y-4">
-              <div className="p-3 bg-muted rounded-lg">
-                <p className="font-medium text-sm">{disputeMarket?.claim}</p>
-                {disputeMarket?.resolution_data?.outcome && (
-                  <p className="text-xs text-muted-foreground mt-1">
-                    Current Resolution: <span className="font-semibold">{disputeMarket.resolution_data.outcome.toUpperCase()}</span>
-                  </p>
-                )}
-              </div>
-
-              <div className="space-y-3">
-                <div>
-                  <Label htmlFor="disputeReason" className="text-sm font-medium">Reason for Dispute *</Label>
-                  <Input
-                    id="disputeReason"
-                    value={disputeReason}
-                    onChange={(e) => setDisputeReason(e.target.value)}
-                    placeholder="e.g., Incorrect information, biased sources..."
-                    className="mt-1"
-                  />
-                </div>
-
-                <div>
-                  <Label htmlFor="disputeEvidence" className="text-sm font-medium">Supporting Evidence (optional)</Label>
-                  <textarea
-                    id="disputeEvidence"
-                    value={disputeEvidence}
-                    onChange={(e) => setDisputeEvidence(e.target.value)}
-                    placeholder="Provide links, sources, or additional context to support your dispute..."
-                    className="mt-1 w-full px-3 py-2 text-sm border border-input bg-background rounded-md resize-none"
-                    rows={3}
-                  />
-                </div>
-
-                <div className="text-xs text-muted-foreground bg-yellow-50 dark:bg-yellow-900/20 p-2 rounded">
-                  ⚠️ Disputes are reviewed by moderators. False or malicious disputes may result in penalties.
-                </div>
-              </div>
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction onClick={submitDispute} className="bg-red-600 hover:bg-red-700">
-              Submit Dispute
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

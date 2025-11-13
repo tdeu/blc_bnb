@@ -21,17 +21,12 @@ import { BettingMarket } from './BettingMarkets';
 import { generateMockComments, getMarketRules, formatTimeAgo, MarketComment, MarketRule } from '../../utils/marketData';
 import { debugClickHandler, validateButtonState, logCastingOperation } from '../../utils/testHelpers';
 import ResolutionStatus from '../shared/ResolutionStatus';
-import DisputeModal, { DisputeFormData } from '../dispute/DisputeModal';
 import { MarketResolution } from '../../utils/supabase';
-import { disputeService } from '../../utils/disputeService';
 import { resolutionService } from '../../utils/resolutionService';
 import { walletService } from '../../utils/walletService';
 import { AIAgentSimple } from '../ai/AIAgentSimple';
 import { useBlockCastAI } from '../../hooks/useBlockCastAI';
-import { FileUploadZone } from '../evidence/FileUploadZone';
-import { evidenceService } from '../../services/evidenceService';
 import { userDataService } from '../../utils/userDataService';
-import { DISPUTE_PERIOD } from '../../config/constants';
 
 interface MarketPageProps {
   market: BettingMarket;
@@ -56,22 +51,10 @@ export default function MarketPage({ market, onPlaceBet, userBalance, onBack, wa
   const [likedComments, setLikedComments] = useState<Set<string>>(new Set());
   const [isLiked, setIsLiked] = useState(false);
   const [isBookmarked, setIsBookmarked] = useState(false);
-  const [activeTab, setActiveTab] = useState<'overview' | 'comments' | 'rules' | 'analysis'>('overview');
+  const [activeTab, setActiveTab] = useState<'overview' | 'comments' | 'rules' | 'analysis' | 'resolution'>('overview');
   
-  // Resolution and dispute state
-  const [showDisputeModal, setShowDisputeModal] = useState(false);
+  // Resolution state (simplified - no more disputes/evidence)
   const [resolution, setResolution] = useState<MarketResolution | null>(null);
-  const [isSubmittingDispute, setIsSubmittingDispute] = useState(false);
-  const [userTokenBalance, setUserTokenBalance] = useState(1000); // Mock balance for now
-
-  // Evidence submission state
-  const [evidenceText, setEvidenceText] = useState('');
-  const [evidenceLinks, setEvidenceLinks] = useState<string[]>(['']);
-  const [evidenceFiles, setEvidenceFiles] = useState<File[]>([]);
-  const [isSubmittingEvidence, setIsSubmittingEvidence] = useState(false);
-  const [submissionStep, setSubmissionStep] = useState<'idle' | 'validating' | 'payment' | 'storing' | 'complete'>('idle');
-  const [userWalletBalance, setUserWalletBalance] = useState<number>(0);
-  const [isWalletConnected, setIsWalletConnected] = useState(false);
 
   // AI Agent integration
   const {
@@ -87,7 +70,6 @@ export default function MarketPage({ market, onPlaceBet, userBalance, onBack, wa
   const [marketBets, setMarketBets] = useState<any[]>([]);
 
   // Activity feed state
-  const [marketDisputes, setMarketDisputes] = useState<any[]>([]);
   const [isLoadingActivity, setIsLoadingActivity] = useState(false);
 
   // Helper function to get translated text
@@ -109,16 +91,20 @@ export default function MarketPage({ market, onPlaceBet, userBalance, onBack, wa
     return `$${formatNumber(amount)}`;
   };
 
+  const isMarketExpired = (): boolean => {
+    return new Date(market.expiresAt) <= new Date();
+  };
+
   const getTimeRemaining = (expiresAt: Date): string => {
     const now = new Date();
     const diff = expiresAt.getTime() - now.getTime();
-    
+
     if (diff <= 0) return t('expired');
-    
+
     const days = Math.floor(diff / (1000 * 60 * 60 * 24));
     const hours = Math.floor((diff % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60));
     const minutes = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60));
-    
+
     if (days > 0) return `${days}d ${hours}h`;
     if (hours > 0) return `${hours}h ${minutes}m`;
     return `${minutes}m`;
@@ -205,77 +191,7 @@ export default function MarketPage({ market, onPlaceBet, userBalance, onBack, wa
     setCommentPosition('neutral');
   };
 
-  // Resolution and dispute handlers
-  const handleDisputeClick = () => {
-    setShowDisputeModal(true);
-  };
-
-  const handleDisputeSubmit = async (disputeData: DisputeFormData) => {
-    setIsSubmittingDispute(true);
-    try {
-      // Get wallet connection using existing wallet service
-      const connection = walletService.getConnection();
-      if (!connection || !connection.isConnected) {
-        toast.error('Please connect your wallet to create a dispute');
-        return;
-      }
-
-      // Use new DisputeManager contract integration
-      const { disputeManagerService } = await import('../../utils/disputeManagerService');
-
-      // Initialize the service
-      await disputeManagerService.initialize(connection);
-
-      // Get bond requirement (should be 100 CAST)
-      const bondAmount = await disputeManagerService.getBondRequirement();
-      console.log('💰 Dispute bond requirement:', bondAmount, 'CAST');
-
-      // Check if user has sufficient CAST tokens
-      const { castTokenService } = await import('../../utils/castTokenService');
-      const userBalance = parseFloat(await castTokenService.getBalance(connection.address));
-
-      if (userBalance < bondAmount) {
-        toast.error(`Insufficient CAST tokens. Required: ${bondAmount} CAST, Available: ${userBalance.toFixed(2)} CAST`);
-        return;
-      }
-
-      // Get market contract address
-      const marketAddress = (market as any).contractAddress;
-      if (!marketAddress) {
-        toast.error('Market contract address not found. Cannot create dispute.');
-        return;
-      }
-
-      // Approve CAST tokens for dispute bond
-      toast.info('Step 1/2: Approving CAST tokens for dispute bond...');
-      const { TOKEN_ADDRESSES } = await import('../../config/constants');
-      await castTokenService.approve(TOKEN_ADDRESSES.DISPUTE_MANAGER_CONTRACT, bondAmount.toString());
-      console.log('✅ CAST tokens approved for dispute bond');
-
-      // Create the dispute on blockchain
-      toast.info('Step 2/2: Creating dispute on blockchain...');
-      const result = await disputeManagerService.createDispute(
-        marketAddress,
-        disputeData.reason,
-        disputeData.evidenceDescription || disputeData.reason
-      );
-
-      console.log('✅ Dispute created successfully:', result);
-      toast.success(
-        `🏛️ Dispute created successfully!\n` +
-        `ID: ${result.disputeId}\n` +
-        `Bond: ${result.bondAmount} CAST tokens locked`
-      );
-
-      setShowDisputeModal(false);
-
-    } catch (error: any) {
-      console.error('Failed to submit dispute:', error);
-      toast.error(`Failed to create dispute: ${error.message || 'Unknown error occurred'}`);
-    } finally {
-      setIsSubmittingDispute(false);
-    }
-  };
+  // Resolution handlers (simplified - no more disputes)
 
   const handleAIAnalysis = async () => {
     setIsAnalyzing(true);
@@ -300,57 +216,7 @@ export default function MarketPage({ market, onPlaceBet, userBalance, onBack, wa
     }
   };
 
-  // Evidence submission handlers - matches BettingMarkets logic
-  const isMarketDisputable = (): boolean => {
-    if (market.status === 'resolved') return false;
-
-    const now = new Date();
-
-    // Check if market has resolution data with confidence score
-    const hasConfidenceData = market.resolution_data &&
-                              (market.resolution_data as any).finalConfidence !== undefined;
-    const confidenceScore = hasConfidenceData
-      ? (market.resolution_data as any).finalConfidence
-      : 0;
-
-    // Markets remain disputable if:
-    // 1. They are in disputable/pending_resolution/disputing status
-    // 2. OR they have expired but confidence < 80% (regardless of dispute period end)
-    // 3. Until confidence reaches 80% OR 30 days have passed (refund threshold)
-
-    const isExpired = market.expiresAt && market.expiresAt <= now;
-    const hasReachedConfidenceThreshold = confidenceScore >= 80;
-
-    // If confidence has reached 80%, use the original dispute period logic
-    if (hasReachedConfidenceThreshold && market.dispute_period_end) {
-      const disputePeriodEnd = new Date(market.dispute_period_end);
-      return now <= disputePeriodEnd;
-    }
-
-    // If confidence is still below 80%, keep market disputable
-    // (regardless of how long it's been since expiration)
-    return (
-      market.status === 'pending_resolution' ||
-      market.status === 'disputing' ||
-      market.status === 'disputable' ||
-      (isExpired && !hasReachedConfidenceThreshold && market.status !== 'resolved')
-    );
-  };
-
-  const addEvidenceLink = () => {
-    setEvidenceLinks([...evidenceLinks, '']);
-  };
-
-  const updateEvidenceLink = (index: number, value: string) => {
-    const newLinks = [...evidenceLinks];
-    newLinks[index] = value;
-    setEvidenceLinks(newLinks);
-  };
-
-  const removeEvidenceLink = (index: number) => {
-    const newLinks = evidenceLinks.filter((_, i) => i !== index);
-    setEvidenceLinks(newLinks.length > 0 ? newLinks : ['']);
-  };
+  // Evidence and dispute system removed - markets now resolve automatically
 
   // Load activity feed data
   const loadMarketActivity = async () => {
@@ -399,26 +265,7 @@ export default function MarketPage({ market, onPlaceBet, userBalance, onBack, wa
       setMarketBets(bets);
       console.log('📊 Total bets loaded:', bets.length);
 
-      // Load disputes from DisputeManager contract
-      if (market.contractAddress) {
-        try {
-          const { disputeManagerService } = await import('../../utils/disputeManagerService');
-
-          // Create a minimal wallet connection object for initialization
-          const walletConnection = {
-            isConnected: true,
-            signer: null // Service will fallback to MetaMask provider
-          };
-
-          await disputeManagerService.initialize(walletConnection);
-          const disputes = await disputeManagerService.getDisputesByMarket(market.contractAddress);
-          console.log('📋 Loaded market disputes:', disputes);
-          setMarketDisputes(disputes);
-        } catch (error) {
-          console.error('Failed to load disputes:', error);
-          // Don't fail the whole loading process if disputes fail
-        }
-      }
+      // Dispute system removed - using automated AI resolution
     } catch (error) {
       console.error('Failed to load market activity:', error);
     } finally {
@@ -641,8 +488,8 @@ export default function MarketPage({ market, onPlaceBet, userBalance, onBack, wa
         </div>
       </div>
 
-      {/* Market Header Card - Show first for disputable markets, grayed out */}
-      <Card className={`overflow-hidden ${isMarketDisputable() ? 'opacity-60 bg-gray-50 dark:bg-gray-900/50' : ''}`}>
+      {/* Market Header Card */}
+      <Card className="overflow-hidden">
         {market.imageUrl && (
           <div className="relative h-48 overflow-hidden">
             <img
@@ -672,16 +519,16 @@ export default function MarketPage({ market, onPlaceBet, userBalance, onBack, wa
           </div>
         )}
 
-        <CardContent className={`p-6 ${isMarketDisputable() ? 'text-gray-500 dark:text-gray-400' : ''}`}>
+        <CardContent className="p-6">
           <div className="grid lg:grid-cols-3 gap-6">
             {/* Market Info */}
             <div className="lg:col-span-2 space-y-4">
-              <p className={`${isMarketDisputable() ? 'text-gray-400 dark:text-gray-500' : 'text-muted-foreground'}`}>
+              <p className="text-muted-foreground">
                 {getTranslatedText(market.description, market.descriptionTranslations)}
               </p>
 
               {/* Location & Source */}
-              <div className={`flex items-center gap-6 text-sm ${isMarketDisputable() ? 'text-gray-400 dark:text-gray-500' : 'text-muted-foreground'}`}>
+              <div className="flex items-center gap-6 text-sm text-muted-foreground">
                 <div className="flex items-center gap-2">
                   <Globe className="h-4 w-4" />
                   <span>{market.country || market.region}</span>
@@ -699,21 +546,21 @@ export default function MarketPage({ market, onPlaceBet, userBalance, onBack, wa
               {/* Pool Distribution */}
               <div className="space-y-3">
                 <div className="flex justify-between items-center">
-                  <span className={`text-sm font-medium ${isMarketDisputable() ? 'text-gray-400 dark:text-gray-500' : ''}`}>{t('truthVerificationPool')}</span>
-                  <span className={`text-sm font-bold ${isMarketDisputable() ? 'text-gray-400 dark:text-gray-500' : ''}`}>{formatCurrency(market.totalPool)}</span>
+                  <span className="text-sm font-medium">{t('truthVerificationPool')}</span>
+                  <span className="text-sm font-bold">{formatCurrency(market.totalPool)}</span>
                 </div>
                 <Progress
                   value={(market.yesPool / market.totalPool) * 100}
-                  className={`h-3 ${isMarketDisputable() ? 'opacity-50' : ''}`}
+                  className="h-3"
                 />
                 <div className="grid grid-cols-2 gap-4 text-sm">
                   <div className="flex justify-between">
-                    <span className={`${isMarketDisputable() ? 'text-gray-400 dark:text-gray-500' : 'text-primary'}`}>{t('truthYes')}</span>
-                    <span className={`font-medium ${isMarketDisputable() ? 'text-gray-400 dark:text-gray-500' : ''}`}>{formatCurrency(market.yesPool)}</span>
+                    <span className="text-primary">{t('truthYes')}</span>
+                    <span className="font-medium">{formatCurrency(market.yesPool)}</span>
                   </div>
                   <div className="flex justify-between">
-                    <span className={`${isMarketDisputable() ? 'text-gray-400 dark:text-gray-500' : 'text-secondary'}`}>{t('truthNo')}</span>
-                    <span className={`font-medium ${isMarketDisputable() ? 'text-gray-400 dark:text-gray-500' : ''}`}>{formatCurrency(market.noPool)}</span>
+                    <span className="text-secondary">{t('truthNo')}</span>
+                    <span className="font-medium">{formatCurrency(market.noPool)}</span>
                   </div>
                 </div>
               </div>
@@ -722,17 +569,17 @@ export default function MarketPage({ market, onPlaceBet, userBalance, onBack, wa
             {/* Odds & Stats */}
             <div className="space-y-4">
               <div className="grid grid-cols-2 gap-3">
-                <div className={`text-center p-4 rounded-lg border ${isMarketDisputable() ? 'bg-gray-100 dark:bg-gray-800 border-gray-200 dark:border-gray-700' : 'bg-primary/10 border-primary/20'}`}>
-                  <div className={`text-sm mb-1 ${isMarketDisputable() ? 'text-gray-400 dark:text-gray-500' : 'text-muted-foreground'}`}>{t('truthYes')}</div>
-                  <div className={`text-2xl font-bold ${isMarketDisputable() ? 'text-gray-400 dark:text-gray-500' : 'text-primary'}`}>{market.yesOdds.toFixed(2)}x</div>
+                <div className={`text-center p-4 rounded-lg border ${isMarketExpired() ? 'bg-gray-500/10 border-gray-500/20 opacity-60' : 'bg-primary/10 border-primary/20'}`}>
+                  <div className="text-sm mb-1 text-muted-foreground">{t('truthYes')}</div>
+                  <div className={`text-2xl font-bold ${isMarketExpired() ? 'text-gray-500' : 'text-primary'}`}>{market.yesOdds.toFixed(2)}x</div>
                 </div>
-                <div className={`text-center p-4 rounded-lg border ${isMarketDisputable() ? 'bg-gray-100 dark:bg-gray-800 border-gray-200 dark:border-gray-700' : 'bg-secondary/10 border-secondary/20'}`}>
-                  <div className={`text-sm mb-1 ${isMarketDisputable() ? 'text-gray-400 dark:text-gray-500' : 'text-muted-foreground'}`}>{t('truthNo')}</div>
-                  <div className={`text-2xl font-bold ${isMarketDisputable() ? 'text-gray-400 dark:text-gray-500' : 'text-secondary'}`}>{market.noOdds.toFixed(2)}x</div>
+                <div className={`text-center p-4 rounded-lg border ${isMarketExpired() ? 'bg-gray-500/10 border-gray-500/20 opacity-60' : 'bg-secondary/10 border-secondary/20'}`}>
+                  <div className="text-sm mb-1 text-muted-foreground">{t('truthNo')}</div>
+                  <div className={`text-2xl font-bold ${isMarketExpired() ? 'text-gray-500' : 'text-secondary'}`}>{market.noOdds.toFixed(2)}x</div>
                 </div>
               </div>
 
-              <div className={`grid grid-cols-2 gap-4 text-sm ${isMarketDisputable() ? 'text-gray-400 dark:text-gray-500' : 'text-muted-foreground'}`}>
+              <div className="grid grid-cols-2 gap-4 text-sm text-muted-foreground">
                 <div className="flex items-center gap-2">
                   <Users className="h-4 w-4" />
                   <span>{formatNumber(market.totalCasters)} {t('verifiers')}</span>
@@ -755,186 +602,7 @@ export default function MarketPage({ market, onPlaceBet, userBalance, onBack, wa
         </CardContent>
       </Card>
 
-      {/* AI Resolution Status - Only show for disputable markets */}
-      {isMarketDisputable() && market.resolution_data && (
-        <Card className="border-amber-200 bg-gradient-to-r from-amber-50 to-yellow-50">
-          <CardContent className="p-6">
-            <div className="text-center mb-4">
-              <div className="flex items-center justify-center gap-2 mb-2">
-                <Brain className="h-6 w-6 text-amber-600" />
-                <h2 className="text-xl font-bold text-amber-800">Community Resolution</h2>
-              </div>
-              <div className="text-lg">
-                The community says this market is:
-                <Badge className={`ml-2 text-lg px-4 py-1 ${
-                  market.resolution_data.outcome === 'yes'
-                    ? 'bg-green-100 text-green-800 border-green-200'
-                    : 'bg-red-100 text-red-800 border-red-200'
-                }`}>
-                  {market.resolution_data.outcome === 'yes' ? 'YES' : 'NO'}
-                </Badge>
-              </div>
-              {market.resolution_data.confidence && (
-                <div className="mt-2 text-sm text-amber-700">
-                  Confidence: {market.resolution_data.confidence} |
-                  Source: {market.resolution_data.source || 'AI Analysis'}
-                </div>
-              )}
-            </div>
-          </CardContent>
-        </Card>
-      )}
-
-      {/* Evidence Submission Interface - Only for disputable markets */}
-      {isMarketDisputable() && (
-        <Card className="border-blue-200">
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <MessageCircle className="h-5 w-5" />
-              Do you want to dispute this resolution?
-            </CardTitle>
-            <CardDescription>
-              If you have evidence that contradicts the Community resolution, submit it here.
-              Your evidence will be reviewed by our dispute resolution system.
-              {market.resolution_data && (market.resolution_data as any).finalConfidence < 80 && (
-                <span className="block mt-2 text-amber-600 font-medium">
-                  ⏳ This market remains open for evidence submissions until confidence reaches 80%.
-                </span>
-              )}
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            {/* Wallet Connection Status */}
-            {!isWalletConnected ? (
-              <div className="bg-amber-50 border border-amber-200 rounded-lg p-4 mb-4">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <div className="flex items-center gap-2 mb-2">
-                      <Shield className="h-4 w-4 text-amber-600" />
-                      <span className="text-sm font-medium text-amber-800">Wallet Required</span>
-                    </div>
-                    <div className="text-sm text-amber-700">
-                      Connect your MetaMask wallet to submit evidence (no fees).
-                    </div>
-                  </div>
-                  <Button onClick={handleConnectWallet} className="bg-amber-600 hover:bg-amber-700">
-                    Connect Wallet
-                  </Button>
-                </div>
-              </div>
-            ) : (
-              <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-4">
-                <div className="flex items-center gap-2 mb-2">
-                  <Target className="h-4 w-4 text-blue-600" />
-                  <span className="text-sm font-medium text-blue-800">Evidence Submission Cost</span>
-                </div>
-                <div className="text-sm text-blue-700 space-y-1">
-                  <div>• <strong>Bond Required:</strong> {DISPUTE_PERIOD.BOND_AMOUNT_CAST} CAST (refunded if accepted)</div>
-                  <div>• <strong>Gas Fee:</strong> ~0.05 HBAR for transaction</div>
-                  <div>• <strong>Your HBAR Balance:</strong> {userWalletBalance.toFixed(4)} HBAR</div>
-                  <div>• <strong>Note:</strong> Bond is locked until dispute is resolved, then refunded if evidence is valid</div>
-                </div>
-              </div>
-            )}
-
-            {/* Evidence Text Input */}
-            <div className="space-y-2">
-              <Label htmlFor="evidence-text" className="text-sm font-medium">
-                Describe your evidence (minimum 20 characters)
-              </Label>
-              <Textarea
-                id="evidence-text"
-                placeholder="Explain why you think the AI resolution is incorrect. Be specific and cite your sources..."
-                value={evidenceText}
-                onChange={(e) => setEvidenceText(e.target.value)}
-                className="min-h-24 resize-none"
-              />
-              <div className="text-xs text-muted-foreground">
-                {evidenceText.length}/20 characters minimum
-              </div>
-            </div>
-
-            {/* File Upload Zone - NEW! */}
-            <div className="space-y-2">
-              <Label className="text-sm font-medium">
-                Upload Evidence Files (Optional)
-              </Label>
-              <FileUploadZone
-                onFilesSelected={setEvidenceFiles}
-                maxFiles={5}
-                maxFileSize={50}
-                disabled={isSubmittingEvidence}
-              />
-              <p className="text-xs text-muted-foreground">
-                Upload images, documents, or videos to support your claim.
-                Files are stored on IPFS for permanent, decentralized access.
-              </p>
-            </div>
-
-            {/* Evidence Links */}
-            <div className="space-y-2">
-              <Label className="text-sm font-medium">Supporting links (optional)</Label>
-              {evidenceLinks.map((link, index) => (
-                <div key={index} className="flex gap-2">
-                  <Input
-                    placeholder="https://example.com/evidence"
-                    value={link}
-                    onChange={(e) => updateEvidenceLink(index, e.target.value)}
-                    className="flex-1"
-                  />
-                  {evidenceLinks.length > 1 && (
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => removeEvidenceLink(index)}
-                      className="px-3"
-                    >
-                      Remove
-                    </Button>
-                  )}
-                </div>
-              ))}
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={addEvidenceLink}
-                className="w-fit"
-              >
-                Add Link
-              </Button>
-            </div>
-
-            {/* Submit Evidence Button */}
-            <div className="flex justify-end pt-2">
-              <Button
-                onClick={handleEvidenceSubmit}
-                disabled={
-                  isSubmittingEvidence ||
-                  !isWalletConnected ||
-                  (evidenceText.trim().length < 20 && evidenceFiles.length === 0)
-                }
-                className="gap-2"
-              >
-                {isSubmittingEvidence ? (
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                ) : submissionStep === 'complete' ? (
-                  <CheckCircle2 className="h-4 w-4" />
-                ) : (
-                  <Send className="h-4 w-4" />
-                )}
-                {(() => {
-                  if (submissionStep === 'validating') return 'Validating Evidence...';
-                  if (submissionStep === 'payment') return 'Uploading to IPFS...';
-                  if (submissionStep === 'storing') return 'Saving Evidence...';
-                  if (submissionStep === 'complete') return 'Evidence Submitted! ✅';
-                  if (!isWalletConnected) return 'Connect Wallet First';
-                  return 'Submit Evidence';
-                })()}
-              </Button>
-            </div>
-          </CardContent>
-        </Card>
-      )}
+      {/* Evidence/dispute system removed - markets now resolve automatically */}
 
       {/* Tab Navigation */}
       <div className="flex items-center gap-1 p-1 bg-muted/50 rounded-lg">
@@ -942,7 +610,8 @@ export default function MarketPage({ market, onPlaceBet, userBalance, onBack, wa
           { id: 'overview', label: t('overview'), icon: Target },
           { id: 'comments', label: t('comments'), icon: MessageCircle, count: comments.length },
           { id: 'rules', label: t('rules'), icon: Scale },
-          { id: 'analysis', label: t('aiAnalysis'), icon: Zap }
+          { id: 'analysis', label: t('aiAnalysis'), icon: Zap },
+          ...(isMarketExpired() ? [{ id: 'resolution', label: 'AI Resolution', icon: Brain }] : [])
         ].map((tab) => {
           const Icon = tab.icon;
           return (
@@ -965,9 +634,9 @@ export default function MarketPage({ market, onPlaceBet, userBalance, onBack, wa
         })}
       </div>
 
-      <div className={`grid gap-6 ${isMarketDisputable() ? 'lg:grid-cols-1' : 'lg:grid-cols-3'}`}>
+      <div className="grid gap-6 lg:grid-cols-3">
         {/* Main Content */}
-        <div className={isMarketDisputable() ? '' : 'lg:col-span-2'}>
+        <div className="lg:col-span-2">
           {/* Overview Tab */}
           {activeTab === 'overview' && (
             <Card>
@@ -978,13 +647,76 @@ export default function MarketPage({ market, onPlaceBet, userBalance, onBack, wa
                 </CardTitle>
               </CardHeader>
               <CardContent className="space-y-4">
+                {/* AI Resolution Result - Show prominently for resolved markets */}
+                {isMarketExpired() && market.resolution_data && market.resolution_data.final_outcome && (
+                  <>
+                    <div className="p-6 bg-gradient-to-br from-blue-50 to-indigo-50 dark:from-blue-950/40 dark:to-indigo-950/40 rounded-xl border-2 border-blue-300 dark:border-blue-700 shadow-lg">
+                      <div className="flex items-center justify-between mb-4">
+                        <div className="flex items-center gap-3">
+                          <div className="p-3 bg-white dark:bg-gray-800 rounded-lg shadow-md">
+                            <Brain className="h-6 w-6 text-blue-600 dark:text-blue-400" />
+                          </div>
+                          <div>
+                            <h3 className="text-lg font-bold text-gray-900 dark:text-white">AI Resolution</h3>
+                            <p className="text-xs text-gray-600 dark:text-gray-400">Powered by Perplexity</p>
+                          </div>
+                        </div>
+                        <Badge
+                          className={`text-2xl px-6 py-3 font-bold shadow-lg ${
+                            market.resolution_data.final_outcome === 'yes'
+                              ? 'bg-green-500 hover:bg-green-600'
+                              : 'bg-red-500 hover:bg-red-600'
+                          } text-white`}
+                        >
+                          {market.resolution_data.final_outcome === 'yes' ? 'YES' : 'NO'}
+                        </Badge>
+                      </div>
+
+                      {market.resolution_data.admin_notes && (
+                        <div className="mt-4 p-4 bg-white/70 dark:bg-gray-800/70 rounded-lg border border-blue-200 dark:border-blue-800">
+                          <p className="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-2">
+                            AI Analysis:
+                          </p>
+                          <p className="text-sm text-gray-700 dark:text-gray-300 leading-relaxed">
+                            {market.resolution_data.admin_notes}
+                          </p>
+                        </div>
+                      )}
+
+                      {market.resolution_data.confidence && (
+                        <div className="mt-3 flex items-center gap-2">
+                          <span className="text-xs font-medium text-gray-600 dark:text-gray-400">Confidence:</span>
+                          <Badge
+                            variant="outline"
+                            className={`text-xs capitalize ${
+                              market.resolution_data.confidence === 'high'
+                                ? 'border-green-500 text-green-700 dark:text-green-400'
+                                : market.resolution_data.confidence === 'medium'
+                                ? 'border-yellow-500 text-yellow-700 dark:text-yellow-400'
+                                : 'border-orange-500 text-orange-700 dark:text-orange-400'
+                            }`}
+                          >
+                            {market.resolution_data.confidence}
+                          </Badge>
+                          {market.resolution_data.timestamp && (
+                            <span className="text-xs text-gray-500 dark:text-gray-400 ml-auto">
+                              Resolved: {new Date(market.resolution_data.timestamp).toLocaleString()}
+                            </span>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                    <Separator />
+                  </>
+                )}
+
                 <div>
                   <h3 className="font-semibold mb-2">{t('marketDescription')}</h3>
                   <p className="text-muted-foreground">
                     {getTranslatedText(market.description, market.descriptionTranslations)}
                   </p>
                 </div>
-                
+
                 <Separator />
                 
                 <div>
@@ -1004,16 +736,16 @@ export default function MarketPage({ market, onPlaceBet, userBalance, onBack, wa
                     <ResolutionStatus
                       market={market}
                       resolution={getResolutionData()}
-                      onDispute={handleDisputeClick}
+                      onDispute={() => {}}
                       transactionId={market.resolution_data?.transaction_id}
                       consensusTimestamp={market.resolution_data?.consensus_timestamp ? new Date(market.resolution_data.consensus_timestamp) : undefined}
                       disputeCount={market.dispute_count || 0}
-                      canDispute={market.status === 'pending_resolution' && !!market.dispute_period_end && new Date() < new Date(market.dispute_period_end)}
+                      canDispute={false}
                     />
                     <Separator />
                   </>
                 )}
-                
+
                 <Separator />
                 
                 <div>
@@ -1047,31 +779,38 @@ export default function MarketPage({ market, onPlaceBet, userBalance, onBack, wa
               </CardHeader>
               <CardContent className="space-y-6">
                 {/* Add Comment */}
-                <div className="space-y-3 p-4 bg-muted/50 rounded-lg">
-                  <Label>{t('shareYourThoughts')}</Label>
-                  <Textarea
-                    placeholder={t('writeCommentPlaceholder')}
-                    value={newComment}
-                    onChange={(e) => setNewComment(e.target.value)}
-                    className="min-h-20"
-                  />
-                  <div className="flex items-center justify-between">
-                    <Select value={commentPosition} onValueChange={(value: any) => setCommentPosition(value)}>
-                      <SelectTrigger className="w-40">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="neutral">{t('neutral')}</SelectItem>
-                        <SelectItem value="yes">{t('truthYes')}</SelectItem>
-                        <SelectItem value="no">{t('truthNo')}</SelectItem>
-                      </SelectContent>
-                    </Select>
-                    <Button onClick={handleCommentSubmit} className="gap-2">
-                      <Send className="h-4 w-4" />
-                      {t('postComment')}
-                    </Button>
+                {!isMarketExpired() ? (
+                  <div className="space-y-3 p-4 bg-muted/50 rounded-lg">
+                    <Label>{t('shareYourThoughts')}</Label>
+                    <Textarea
+                      placeholder={t('writeCommentPlaceholder')}
+                      value={newComment}
+                      onChange={(e) => setNewComment(e.target.value)}
+                      className="min-h-20"
+                    />
+                    <div className="flex items-center justify-between">
+                      <Select value={commentPosition} onValueChange={(value: any) => setCommentPosition(value)}>
+                        <SelectTrigger className="w-40">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="neutral">{t('neutral')}</SelectItem>
+                          <SelectItem value="yes">{t('truthYes')}</SelectItem>
+                          <SelectItem value="no">{t('truthNo')}</SelectItem>
+                        </SelectContent>
+                      </Select>
+                      <Button onClick={handleCommentSubmit} className="gap-2">
+                        <Send className="h-4 w-4" />
+                        {t('postComment')}
+                      </Button>
+                    </div>
                   </div>
-                </div>
+                ) : (
+                  <div className="p-4 bg-muted/30 rounded-lg border border-border text-center text-sm text-muted-foreground">
+                    <AlertCircle className="h-5 w-5 inline-block mr-2" />
+                    Market has expired. Comments are read-only.
+                  </div>
+                )}
 
                 <Separator />
 
@@ -1288,12 +1027,113 @@ export default function MarketPage({ market, onPlaceBet, userBalance, onBack, wa
               </CardContent>
             </Card>
           )}
+
+          {/* AI Resolution Tab (only for expired markets) */}
+          {activeTab === 'resolution' && isMarketExpired() && (
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <Brain className="h-5 w-5 text-blue-500" />
+                  AI Resolution
+                </CardTitle>
+                <p className="text-sm text-muted-foreground mt-2">
+                  This market has been resolved using AI-powered analysis
+                </p>
+              </CardHeader>
+              <CardContent className="space-y-6">
+                {market.resolution_data ? (
+                  <>
+                    {/* Resolution Outcome */}
+                    <div className="p-6 bg-gradient-to-br from-blue-50 to-indigo-50 dark:from-blue-950/30 dark:to-indigo-950/30 rounded-lg border-2 border-blue-200 dark:border-blue-800">
+                      <div className="flex items-center justify-between mb-4">
+                        <h3 className="text-lg font-bold text-blue-900 dark:text-blue-100">Resolution Outcome</h3>
+                        <Badge className={`text-lg px-4 py-2 ${market.resolution_data.final_outcome === 'yes' ? 'bg-green-500' : 'bg-red-500'} text-white`}>
+                          {market.resolution_data.final_outcome === 'yes' ? 'TRUE' : 'FALSE'}
+                        </Badge>
+                      </div>
+                      {market.resolution_data.confidence && (
+                        <div className="space-y-2">
+                          <div className="flex justify-between text-sm">
+                            <span className="text-muted-foreground">Confidence Level</span>
+                            <span className="font-semibold capitalize">{market.resolution_data.confidence}</span>
+                          </div>
+                          <Progress
+                            value={market.resolution_data.confidence === 'high' ? 90 : market.resolution_data.confidence === 'medium' ? 70 : 50}
+                            className="h-2"
+                          />
+                        </div>
+                      )}
+                    </div>
+
+                    {/* AI Reasoning */}
+                    {market.resolution_data.admin_notes && (
+                      <div className="space-y-3">
+                        <h4 className="font-semibold flex items-center gap-2">
+                          <FileText className="h-4 w-4" />
+                          AI Analysis & Reasoning
+                        </h4>
+                        <div className="p-4 bg-muted/50 rounded-lg border border-border">
+                          <p className="text-sm text-muted-foreground whitespace-pre-wrap">
+                            {market.resolution_data.admin_notes}
+                          </p>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Source Information */}
+                    {market.resolution_data.source && (
+                      <div className="space-y-3">
+                        <h4 className="font-semibold flex items-center gap-2">
+                          <Globe className="h-4 w-4" />
+                          Data Sources
+                        </h4>
+                        <div className="p-4 bg-muted/50 rounded-lg border border-border">
+                          <p className="text-sm text-muted-foreground">
+                            {market.resolution_data.source}
+                          </p>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Resolution Details */}
+                    <div className="grid grid-cols-2 gap-4 text-sm">
+                      {market.resolution_data.resolved_by && (
+                        <div>
+                          <div className="text-muted-foreground mb-1">Resolved By</div>
+                          <div className="font-medium capitalize">{market.resolution_data.resolved_by}</div>
+                        </div>
+                      )}
+                      {market.resolution_data.timestamp && (
+                        <div>
+                          <div className="text-muted-foreground mb-1">Resolution Time</div>
+                          <div className="font-medium">{new Date(market.resolution_data.timestamp).toLocaleString()}</div>
+                        </div>
+                      )}
+                      {market.resolution_data.transaction_id && (
+                        <div className="col-span-2">
+                          <div className="text-muted-foreground mb-1">Transaction ID</div>
+                          <div className="font-mono text-xs truncate">{market.resolution_data.transaction_id}</div>
+                        </div>
+                      )}
+                    </div>
+                  </>
+                ) : (
+                  <div className="p-8 text-center">
+                    <Brain className="h-12 w-12 mx-auto mb-4 text-blue-500 opacity-50" />
+                    <h3 className="text-lg font-semibold mb-2">Resolution Pending</h3>
+                    <p className="text-sm text-muted-foreground">
+                      This market will be resolved automatically by our AI system within seconds of expiration.
+                    </p>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          )}
         </div>
 
-        {/* Sidebar - Casting Interface - Only show for non-disputable markets */}
-        {!isMarketDisputable() && (
-          <div className="space-y-6">
-            {market.status === 'active' ? (
+        {/* Sidebar - Casting Interface */}
+        <div className="space-y-6">
+            {!isMarketExpired() ? (
               <Card>
                 <CardHeader>
                   <CardTitle className="flex items-center gap-2">
@@ -1320,7 +1160,7 @@ export default function MarketPage({ market, onPlaceBet, userBalance, onBack, wa
                             e.stopPropagation();
                             handleQuickCast('yes', amount);
                           }}
-                          disabled={walletConnected && amount > userBalance}
+                          disabled={isMarketExpired() || (walletConnected && amount > userBalance)}
                         >
                           <span className="text-primary font-semibold">TRUE</span>
                           <span className="ml-2">{amount} CAST</span>
@@ -1343,7 +1183,7 @@ export default function MarketPage({ market, onPlaceBet, userBalance, onBack, wa
                             e.stopPropagation();
                             handleQuickCast('no', amount);
                           }}
-                          disabled={walletConnected && amount > userBalance}
+                          disabled={isMarketExpired() || (walletConnected && amount > userBalance)}
                         >
                           <span className="text-secondary font-semibold">FALSE</span>
                           <span className="ml-2">{amount} CAST</span>
@@ -1359,7 +1199,7 @@ export default function MarketPage({ market, onPlaceBet, userBalance, onBack, wa
                     <Label className="text-sm font-medium">{t('customAmount')}</Label>
                     <div className="space-y-3">
                       <div className="flex gap-2">
-                        <Select value={castPosition} onValueChange={(value: any) => handlePositionChange(value)}>
+                        <Select value={castPosition} onValueChange={(value: any) => handlePositionChange(value)} disabled={isMarketExpired()}>
                           <SelectTrigger className="w-24">
                             <SelectValue />
                           </SelectTrigger>
@@ -1376,6 +1216,7 @@ export default function MarketPage({ market, onPlaceBet, userBalance, onBack, wa
                           value={castAmount}
                           onChange={(e) => handleAmountChange(e.target.value)}
                           className="flex-1"
+                          disabled={isMarketExpired()}
                         />
                       </div>
 
@@ -1411,7 +1252,7 @@ export default function MarketPage({ market, onPlaceBet, userBalance, onBack, wa
                     <Button
                       onClick={handleCustomCast}
                       className="w-full gap-2"
-                      disabled={walletConnected && (!castAmount || parseFloat(castAmount) > userBalance)}
+                      disabled={isMarketExpired() || (walletConnected && (!castAmount || parseFloat(castAmount) > userBalance))}
                     >
                       <Target className="h-4 w-4" />
                       {t('castPosition')}
@@ -1441,76 +1282,195 @@ export default function MarketPage({ market, onPlaceBet, userBalance, onBack, wa
             )}
 
             {/* Claim Winnings Section - Show for resolved markets */}
-            {market.status === 'resolved' && market.resolution_data && (
-              <Card className="border-green-500 bg-gradient-to-br from-green-50 to-emerald-50 dark:from-green-900/20 dark:to-emerald-900/20">
-                <CardHeader>
-                  <CardTitle className="flex items-center gap-2 text-green-700 dark:text-green-400">
-                    <CheckCircle2 className="h-5 w-5" />
-                    Claim Your Winnings
-                  </CardTitle>
-                  <CardDescription className="text-green-600 dark:text-green-500">
-                    Market resolved: <strong>{market.resolution_data.outcome?.toUpperCase()}</strong>
-                  </CardDescription>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                  <div className="bg-white/50 dark:bg-gray-800/50 p-4 rounded-lg border border-green-200 dark:border-green-800">
-                    <div className="text-sm text-gray-600 dark:text-gray-400 mb-2">Your Position</div>
-                    <div className="text-2xl font-bold text-green-600 dark:text-green-400">
-                      {/* This would be calculated based on user's bets */}
-                      Position: TBD
+            {market.status === 'resolved' && market.resolution_data && (() => {
+              // Get user's wallet address
+              const connection = walletService.getConnection();
+              const userAddress = connection?.signer?.address || connection?.address;
+
+              // Filter user's bets for this market
+              const userBets = marketBets.filter((bet: any) =>
+                bet.walletAddress?.toLowerCase() === userAddress?.toLowerCase()
+              );
+
+              // Calculate winnings
+              const resolvedOutcome = market.resolution_data.final_outcome || market.resolution_data.outcome;
+              const winningBets = userBets.filter((bet: any) => bet.position === resolvedOutcome);
+              const losingBets = userBets.filter((bet: any) => bet.position !== resolvedOutcome);
+
+              const totalBetAmount = userBets.reduce((sum: number, bet: any) => sum + bet.amount, 0);
+              const totalWinnings = winningBets.reduce((sum: number, bet: any) => {
+                const odds = bet.position === 'yes' ? market.yesOdds : market.noOdds;
+                return sum + (bet.amount * odds);
+              }, 0);
+
+              const netProfit = totalWinnings - totalBetAmount;
+              const hasWinnings = totalWinnings > 0;
+              const hasLosses = losingBets.length > 0;
+
+              // Don't show if user has no bets on this market
+              if (userBets.length === 0) return null;
+
+              return (
+                <Card className={hasWinnings
+                  ? "border-green-500 bg-gradient-to-br from-green-50 to-emerald-50 dark:from-green-900/20 dark:to-emerald-900/20"
+                  : "border-red-500 bg-gradient-to-br from-red-50 to-rose-50 dark:from-red-900/20 dark:to-rose-900/20"
+                }>
+                  <CardHeader>
+                    <CardTitle className={`flex items-center gap-2 ${hasWinnings ? 'text-green-700 dark:text-green-400' : 'text-red-700 dark:text-red-400'}`}>
+                      {hasWinnings ? <CheckCircle2 className="h-5 w-5" /> : <AlertCircle className="h-5 w-5" />}
+                      {hasWinnings ? 'Claim Your Winnings' : 'Market Result'}
+                    </CardTitle>
+                    <CardDescription className={hasWinnings ? 'text-green-600 dark:text-green-500' : 'text-red-600 dark:text-red-500'}>
+                      Market resolved: <strong>{resolvedOutcome?.toUpperCase()}</strong>
+                    </CardDescription>
+                  </CardHeader>
+                  <CardContent className="space-y-4">
+                    {/* Show user's positions */}
+                    <div className="space-y-3">
+                      <div className="text-sm font-medium text-gray-700 dark:text-gray-300">Your Positions:</div>
+                      {userBets.map((bet: any, index: number) => {
+                        const isWinning = bet.position === resolvedOutcome;
+                        const odds = bet.position === 'yes' ? market.yesOdds : market.noOdds;
+                        const payout = isWinning ? bet.amount * odds : 0;
+
+                        return (
+                          <div key={index} className={`p-3 rounded-lg border ${isWinning ? 'bg-green-50 dark:bg-green-900/20 border-green-300' : 'bg-red-50 dark:bg-red-900/20 border-red-300'}`}>
+                            <div className="flex items-center justify-between">
+                              <div>
+                                <div className="flex items-center gap-2">
+                                  <Badge className={isWinning ? 'bg-green-600' : 'bg-red-600'}>
+                                    {bet.position.toUpperCase()}
+                                  </Badge>
+                                  <span className="text-sm font-medium">
+                                    {bet.amount.toFixed(2)} CAST @ {odds.toFixed(2)}x
+                                  </span>
+                                </div>
+                                <div className="text-xs text-gray-500 mt-1">
+                                  {new Date(bet.placedAt).toLocaleDateString()}
+                                </div>
+                              </div>
+                              <div className="text-right">
+                                {isWinning ? (
+                                  <>
+                                    <div className="text-sm font-bold text-green-600">
+                                      +{payout.toFixed(2)} CAST
+                                    </div>
+                                    <div className="text-xs text-gray-500">
+                                      Profit: {(payout - bet.amount).toFixed(2)} CAST
+                                    </div>
+                                  </>
+                                ) : (
+                                  <div className="text-sm font-bold text-red-600">
+                                    -{bet.amount.toFixed(2)} CAST
+                                  </div>
+                                )}
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      })}
                     </div>
-                    <div className="text-xs text-gray-500 mt-1">
-                      (Calculated from your bets on this market)
+
+                    {/* Total Summary */}
+                    <div className="bg-white/50 dark:bg-gray-800/50 p-4 rounded-lg border border-gray-200 dark:border-gray-700">
+                      <div className="space-y-2">
+                        <div className="flex justify-between text-sm">
+                          <span className="text-gray-600 dark:text-gray-400">Total Bet:</span>
+                          <span className="font-medium">{totalBetAmount.toFixed(2)} CAST</span>
+                        </div>
+                        <div className="flex justify-between text-sm">
+                          <span className="text-gray-600 dark:text-gray-400">Total Winnings:</span>
+                          <span className={`font-medium ${hasWinnings ? 'text-green-600' : 'text-gray-600'}`}>
+                            {totalWinnings.toFixed(2)} CAST
+                          </span>
+                        </div>
+                        <Separator />
+                        <div className="flex justify-between">
+                          <span className="font-semibold">Net Result:</span>
+                          <span className={`text-lg font-bold ${netProfit > 0 ? 'text-green-600' : netProfit < 0 ? 'text-red-600' : 'text-gray-600'}`}>
+                            {netProfit > 0 ? '+' : ''}{netProfit.toFixed(2)} CAST
+                          </span>
+                        </div>
+                      </div>
                     </div>
-                  </div>
 
-                  <Button
-                    className="w-full gap-2 bg-green-600 hover:bg-green-700"
-                    size="lg"
-                    onClick={async () => {
-                      try {
-                        if (!market.contractAddress) {
-                          toast.error('Market contract address not found');
-                          return;
-                        }
+                    {/* Claim Button - Only show if user has winnings */}
+                    {hasWinnings && (
+                      <>
+                        <Button
+                          className="w-full gap-2 bg-green-600 hover:bg-green-700"
+                          size="lg"
+                          onClick={async () => {
+                            try {
+                              if (!market.contractAddress) {
+                                toast.error('Market contract address not found');
+                                return;
+                              }
 
-                        // Import ethers and contract service
-                        const ethers = await import('ethers');
-                        const provider = new ethers.JsonRpcProvider('https://testnet.hashio.io/api');
+                              // Import ethers and contract service
+                              const ethers = await import('ethers');
 
-                        // Connect user's wallet
-                        const connection = walletService.getConnection();
-                        if (!connection?.signer) {
-                          toast.error('Please connect your wallet first');
-                          return;
-                        }
+                              // Connect user's wallet
+                              const connection = walletService.getConnection();
+                              if (!connection?.signer) {
+                                toast.error('Please connect your wallet first');
+                                return;
+                              }
 
-                        const MARKET_ABI = ["function redeem() external"];
-                        const marketContract = new ethers.Contract(market.contractAddress, MARKET_ABI, connection.signer);
+                              const MARKET_ABI = ["function redeem() external"];
+                              const marketContract = new ethers.Contract(market.contractAddress, MARKET_ABI, connection.signer);
 
-                        toast.loading('Claiming your winnings...');
-                        const tx = await marketContract.redeem();
-                        await tx.wait();
+                              toast.loading('Claiming your winnings...');
+                              const tx = await marketContract.redeem();
+                              await tx.wait();
 
-                        toast.success('Winnings claimed successfully! 🎉');
-                      } catch (error: any) {
-                        console.error('Failed to claim winnings:', error);
-                        toast.error(`Failed to claim: ${error.message || 'Unknown error'}`);
-                      }
-                    }}
-                  >
-                    <Target className="h-5 w-5" />
-                    Claim Winnings Now
-                  </Button>
+                              toast.success(`${totalWinnings.toFixed(2)} CAST added to your wallet! 🎉`);
+                            } catch (error: any) {
+                              console.error('Failed to claim winnings:', error);
 
-                  <div className="text-xs text-center text-gray-500">
-                    Transaction fee: ~0.05 HBAR
-                  </div>
-                </CardContent>
-              </Card>
-            )}
+                              // Check if error is "Not resolved" - market hasn't been resolved on blockchain yet
+                              if (error.message && error.message.includes('Not resolved')) {
+                                // Automatically resolve on blockchain, then claim
+                                try {
+                                  toast.loading('Processing your claim...');
+
+                                  // Step 1: Resolve market on blockchain
+                                  console.log('🔐 Market not resolved on blockchain yet, resolving now...');
+                                  await resolutionService.resolveMarketWithAI(market.id, resolvedOutcome, 80);
+
+                                  // Step 2: Wait a moment for transaction to be confirmed
+                                  await new Promise(resolve => setTimeout(resolve, 2000));
+
+                                  // Step 3: Now claim the winnings
+                                  toast.loading('Claiming your winnings...');
+                                  const tx = await marketContract.redeem();
+                                  await tx.wait();
+
+                                  toast.success(`${totalWinnings.toFixed(2)} CAST added to your wallet! 🎉`);
+                                } catch (resError: any) {
+                                  console.error('Failed to process claim:', resError);
+                                  toast.error(`Failed to claim winnings. Please try again.`);
+                                }
+                              } else {
+                                toast.error(`Failed to claim: ${error.message || 'Unknown error'}`);
+                              }
+                            }
+                          }}
+                        >
+                          <Target className="h-5 w-5" />
+                          Claim {totalWinnings.toFixed(2)} CAST
+                        </Button>
+
+                        <div className="text-xs text-center text-gray-500">
+                          Transaction fee: ~0.001 BNB
+                        </div>
+                      </>
+                    )}
+                  </CardContent>
+                </Card>
+              );
+            })()}
           </div>
-        )}
 
       </div>
 
@@ -1669,57 +1629,7 @@ export default function MarketPage({ market, onPlaceBet, userBalance, onBack, wa
                 </div>
               )}
 
-              {/* Dispute Submissions */}
-              {marketDisputes.map((dispute) => (
-                <div key={dispute.id} className="flex gap-4 p-4 bg-purple-50 dark:bg-purple-900/10 rounded-lg border border-purple-200">
-                  <div className="flex-shrink-0">
-                    <div className="w-8 h-8 bg-purple-500 rounded-full flex items-center justify-center">
-                      <FileText className="h-4 w-4 text-white" />
-                    </div>
-                  </div>
-                  <div className="flex-1 space-y-1">
-                    <div className="flex items-center gap-2">
-                      <span className="font-semibold text-purple-700 dark:text-purple-400">Evidence Submitted</span>
-                      <Badge variant="outline" className="text-xs bg-purple-100 text-purple-700 border-purple-200">
-                        Dispute #{dispute.id}
-                      </Badge>
-                      <Badge
-                        variant="outline"
-                        className={`text-xs ${
-                          dispute.status === 1 ? 'bg-green-100 text-green-700 border-green-200' :
-                          dispute.status === 2 ? 'bg-red-100 text-red-700 border-red-200' :
-                          dispute.status === 0 ? 'bg-yellow-100 text-yellow-700 border-yellow-200' :
-                          'bg-gray-100 text-gray-700 border-gray-200'
-                        }`}
-                      >
-                        {dispute.status === 0 ? 'Active' : dispute.status === 1 ? 'Resolved' : dispute.status === 2 ? 'Rejected' : 'Expired'}
-                      </Badge>
-                    </div>
-                    <p className="text-sm text-muted-foreground">
-                      Submitted by{' '}
-                      <span className="font-mono text-xs bg-muted px-1 rounded">
-                        {dispute.disputer.slice(0, 6)}...{dispute.disputer.slice(-4)}
-                      </span>
-                      {' '}• Bond: {dispute.bondAmount ? (Number(dispute.bondAmount) / 1e18).toFixed(1) : '1'} CAST
-                    </p>
-                    {/* Evidence preview */}
-                    <p className="text-sm">
-                      "{dispute.evidence.length > 100 ? dispute.evidence.slice(0, 100) + '...' : dispute.evidence}"
-                    </p>
-                    <div className="flex items-center gap-4 text-xs text-muted-foreground">
-                      <span>{dispute.createdAt ? new Date(Number(dispute.createdAt) * 1000).toLocaleDateString() : 'Recent'}</span>
-                      {dispute.evidenceHash && (
-                        <span className="font-mono">
-                          Hash: {dispute.evidenceHash.slice(0, 10)}...
-                        </span>
-                      )}
-                      {dispute.reason && (
-                        <span>Reason: {dispute.reason.slice(0, 30)}{dispute.reason.length > 30 ? '...' : ''}</span>
-                      )}
-                    </div>
-                  </div>
-                </div>
-              ))}
+              {/* Dispute system removed - using automated AI resolution */}
 
 
               {/* AI Resolution Event - only show for resolved markets */}
@@ -1793,10 +1703,10 @@ export default function MarketPage({ market, onPlaceBet, userBalance, onBack, wa
               )}
 
               {/* Empty State */}
-              {marketDisputes.length === 0 && !market.resolution_data && (
+              {!market.resolution_data && (
                 <div className="text-center py-8 text-muted-foreground">
                   <MessageCircle className="h-8 w-8 mx-auto mb-2 opacity-50" />
-                  <p>No additional activity yet. Be the first to submit evidence!</p>
+                  <p>No additional activity yet.</p>
                 </div>
               )}
             </div>
@@ -1804,20 +1714,7 @@ export default function MarketPage({ market, onPlaceBet, userBalance, onBack, wa
         </CardContent>
       </Card>
 
-      {/* Dispute Modal */}
-      <DisputeModal
-        isOpen={showDisputeModal}
-        marketId={market.id}
-        market={market}
-        resolution={getResolutionData() || {} as MarketResolution}
-        onSubmit={handleDisputeSubmit}
-        onClose={() => setShowDisputeModal(false)}
-        bondAmount={100} // Mock bond amount
-        userTokenBalance={userTokenBalance}
-        htsTokenId="mock-token-id"
-        isSubmitting={isSubmittingDispute}
-        enableAIAssistance={true}
-      />
+      {/* Dispute Modal removed - no longer using dispute system */}
     </div>
   );
 } 

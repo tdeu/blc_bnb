@@ -47,11 +47,15 @@ contract PredictionMarketFactory {
         betNFT = BetNFT(_betNFT);
     }
 
+    // Minimum collateral required to create a market (0.001 BNB)
+    uint256 public minCreationCollateral = 0.001 ether;
+
     function createMarket(
         string memory question,
         uint256 endTime
-    ) external factoryNotPaused returns (bytes32) {
+    ) external payable factoryNotPaused returns (bytes32) {
         require(endTime > block.timestamp, "End time must be in the future");
+        require(msg.value >= minCreationCollateral, "Insufficient collateral");
 
         bytes32 id = keccak256(
             abi.encodePacked(question, block.timestamp, msg.sender)
@@ -65,7 +69,7 @@ contract PredictionMarketFactory {
             endTime,
             address(collateral),
             adminManager,
-            treasury,
+            payable(treasury),
             address(betNFT),
             defaultProtocolFeeRate
         );
@@ -75,8 +79,19 @@ contract PredictionMarketFactory {
 
         betNFT.authorizeMarket(address(market));
 
+        // Transfer collateral to treasury
+        (bool success, ) = treasury.call{value: msg.value}("");
+        require(success, "Collateral transfer failed");
+
         emit MarketCreated(id, address(market), question);
         return id;
+    }
+
+    /**
+     * @dev Update minimum creation collateral (admin only)
+     */
+    function setMinCreationCollateral(uint256 _minCollateral) external onlyAdmin {
+        minCreationCollateral = _minCollateral;
     }
 
     function rewardCreator(address creator) external {
@@ -106,10 +121,10 @@ contract PredictionMarketFactory {
     /**
      * @dev Batch authorize multiple markets (admin only)
      */
-    function authorizeMultipleMarkets(address[] calldata markets) external onlyAdmin {
-        for (uint i = 0; i < markets.length; i++) {
-            require(markets[i] != address(0), "Invalid market address");
-            betNFT.authorizeMarket(markets[i]);
+    function authorizeMultipleMarkets(address[] calldata marketAddresses) external onlyAdmin {
+        for (uint i = 0; i < marketAddresses.length; i++) {
+            require(marketAddresses[i] != address(0), "Invalid market address");
+            betNFT.authorizeMarket(marketAddresses[i]);
         }
     }
 }

@@ -12,13 +12,7 @@ export const MARKET_CREATION = {
   MAX_DESCRIPTION_LENGTH: 1000
 } as const;
 
-// Dispute System Settings
-export const DISPUTE_PERIOD = {
-  HOURS: 168, // 7 days dispute period (168 hours)
-  MILLISECONDS: 168 * 60 * 60 * 1000,
-  BOND_AMOUNT_BNB: '1', // 1 BNB dispute bond
-  BOND_AMOUNT_CAST: '100' // 100 CAST dispute bond
-} as const;
+// Dispute system removed - automated AI resolution only
 
 // Token Configuration
 export const TOKEN_CONFIG = {
@@ -43,21 +37,22 @@ export const TOKEN_ADDRESSES = {
   CAST_TOKEN: '0x8B84B21AC2EB9C37EfaD196d99088Df823567e81', // Deployed 2025-11-09
   USDC_TOKEN: '0x0000000000000000000000000000000000000000', // Placeholder (not used on BSC)
   FACTORY_CONTRACT: '0x224168a50c6B918230a855075f90ED230371F965', // Deployed 2025-11-09
-  TREASURY_CONTRACT: '0xf72789416187386Af70c063ff54a1E107Bdbd573', // Deployed 2025-11-09
+  TREASURY: '0xf72789416187386Af70c063ff54a1E107Bdbd573', // Deployed 2025-11-09 (Treasury for BuyCAST)
+  TREASURY_CONTRACT: '0xf72789416187386Af70c063ff54a1E107Bdbd573', // Alias for backward compatibility
   ADMIN_MANAGER_CONTRACT: '0xF02840CdB0f08E6A88E1ACbd14120b1754ebd9fe', // Deployed 2025-11-09
   BET_NFT_CONTRACT: '0x10389fbC289D124549433C41b54eF25BD423B162', // Deployed 2025-11-09
-  DISPUTE_MANAGER_CONTRACT: '0xbcF01D2911C2fE5f938345225613aA0371b5eC8e', // Deployed 2025-11-09
 
-  // BuyCAST contract - not needed on BSC (using DEX instead)
-  BUYCAST_CONTRACT: '0x0000000000000000000000000000000000000000', // Not deployed
+  // BuyCAST contract - Updated 2025-11-13 with SimpleTreasury
+  BUYCAST_CONTRACT: '0x45fEE9DAcF3Beb2C0C67dF057D068c0003C53B79', // Deployed 2025-11-13 (v3 - with SimpleTreasury)
+
+  // DisputeManager contract removed - no longer using dispute system
 } as const;
 
-// Market Status Types
+// Market Status Types (simplified - no more disputable status)
 export const MARKET_STATUS = {
   SUBMITTED: 'submitted',
   PENDING_APPROVAL: 'pending_approval',
-  ACTIVE: 'active',
-  DISPUTABLE: 'disputable',
+  OPEN: 'open', // Replaces ACTIVE
   PENDING_RESOLUTION: 'pending_resolution',
   RESOLVED: 'resolved',
   CANCELLED: 'cancelled',
@@ -74,6 +69,11 @@ export const AI_RESOLUTION = {
 // Network Settings (BSC Testnet)
 export const BSC_CONFIG = {
   TESTNET_RPC: 'https://data-seed-prebsc-1-s1.binance.org:8545/',
+  TESTNET_RPC_FALLBACK: [
+    'https://bsc-testnet.publicnode.com',
+    'https://data-seed-prebsc-2-s1.binance.org:8545/',
+    'https://data-seed-prebsc-1-s2.binance.org:8545/',
+  ],
   TESTNET_CHAIN_ID: 97,
   TESTNET_EXPLORER: 'https://testnet.bscscan.com'
 } as const;

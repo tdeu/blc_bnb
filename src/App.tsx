@@ -28,8 +28,8 @@ import { pendingMarketsService } from './utils/pendingMarketsService';
 import { approvedMarketsService } from './utils/approvedMarketsService';
 import { userDataService } from './utils/userDataService';
 import { supabase } from './utils/supabase';
+import { TOKEN_ADDRESSES } from './config/constants';
 import { UserProvider } from './contexts/UserContext';
-import { DISPUTE_PERIOD } from './config/constants';
 import { BettingMarket } from './components/BettingMarkets';
 import { Toaster } from './components/ui/sonner';
 import { toast } from 'sonner';
@@ -41,6 +41,7 @@ import { mockVerificationHistory } from './utils/mockData';
 import { walletService, WalletConnection } from './utils/walletService';
 import { castTokenService } from './utils/castTokenService';
 import { automaticResolutionMonitor } from './services/automaticResolutionMonitor';
+import { aiResolutionScheduler } from './services/aiResolutionScheduler';
 import { TestIPFS } from './pages/TestIPFS';
 import { factoryService } from './services/factoryService';
 
@@ -190,31 +191,47 @@ export default function App() {
       const provider = new ethers.JsonRpcProvider('https://data-seed-prebsc-1-s1.binance.org:8545/');
 
       const marketABI = [
-        'function getMarketPrices() external view returns (uint256 yesPrice, uint256 noPrice, uint256 yesProb, uint256 noProb)',
-        'function getMarketVolume() external view returns (uint256)'
+        'function getCurrentPrice() external view returns (uint256 priceYes, uint256 priceNo)',
+        'function getProbabilities() external view returns (uint256 probYes, uint256 probNo)',
+        'function yesShares() external view returns (uint256)',
+        'function noShares() external view returns (uint256)',
+        'function reserve() external view returns (uint256)'
       ];
       const contract = new ethers.Contract(contractAddress, marketABI, provider);
 
-      const pricesData = await contract.getMarketPrices();
-      const volumeData = await contract.getMarketVolume();
+      // Call the actual contract functions
+      const [pricesData, probabilitiesData, yesShares, noShares, reserve] = await Promise.all([
+        contract.getCurrentPrice(),
+        contract.getProbabilities(),
+        contract.yesShares(),
+        contract.noShares(),
+        contract.reserve()
+      ]);
+
+      // Calculate odds from prices (price is the probability, odds are 1/probability)
+      const yesPrice = parseFloat(ethers.formatEther(pricesData[0])); // priceYes
+      const noPrice = parseFloat(ethers.formatEther(pricesData[1])); // priceNo
 
       const prices = {
-        yesOdds: parseFloat(ethers.formatEther(pricesData.yesPrice)),
-        noOdds: parseFloat(ethers.formatEther(pricesData.noPrice)),
-        yesProb: parseFloat(ethers.formatUnits(pricesData.yesProb, 18)),
-        noProb: parseFloat(ethers.formatUnits(pricesData.noProb, 18)),
-        yesPrice: pricesData.yesPrice,
-        noPrice: pricesData.noPrice
+        yesOdds: yesPrice > 0 ? 1 / yesPrice : 2.0, // Odds are inverse of probability
+        noOdds: noPrice > 0 ? 1 / noPrice : 2.0,
+        yesProb: parseFloat(ethers.formatUnits(probabilitiesData[0], 0)) / 100, // probYes (0-100 percentage)
+        noProb: parseFloat(ethers.formatUnits(probabilitiesData[1], 0)) / 100, // probNo (0-100 percentage)
+        yesPrice: pricesData[0],
+        noPrice: pricesData[1],
+        yesShares: parseFloat(ethers.formatEther(yesShares)),
+        noShares: parseFloat(ethers.formatEther(noShares))
       };
-      const volume = parseFloat(ethers.formatEther(volumeData));
-      console.log(`📊 Fetched prices from blockchain:`, {
-        yesOdds: prices.yesOdds,
-        noOdds: prices.noOdds,
+      const volume = parseFloat(ethers.formatEther(reserve));
+
+      console.log(`📊 Fetched data from blockchain:`, {
+        yesOdds: prices.yesOdds.toFixed(3),
+        noOdds: prices.noOdds.toFixed(3),
         yesProb: (prices.yesProb * 100).toFixed(1) + '%',
         noProb: (prices.noProb * 100).toFixed(1) + '%',
-        yesPrice: prices.yesPrice,
-        noPrice: prices.noPrice,
-        volume: volume
+        yesShares: prices.yesShares.toFixed(2),
+        noShares: prices.noShares.toFixed(2),
+        reserve: volume.toFixed(3)
       });
 
       // Update the market in the markets array with new prices
@@ -386,19 +403,30 @@ export default function App() {
       console.error('❌ Failed to start automatic resolution monitor:', error);
     }
 
+    // Start AI resolution scheduler
+    console.log('🚀 Starting AI resolution scheduler...');
+    try {
+      aiResolutionScheduler.start();
+      console.log('✅ AI resolution scheduler started successfully');
+    } catch (error) {
+      console.error('❌ Failed to start AI resolution scheduler:', error);
+    }
+
     // Make test function available in browser console for debugging
     (window as any).testMarketRefresh = testMarketRefresh;
     (window as any).marketContracts = marketContracts;
     (window as any).castTokenService = castTokenService;
     (window as any).automaticResolutionMonitor = automaticResolutionMonitor;
+    (window as any).aiResolutionScheduler = aiResolutionScheduler;
     (window as any).walletService = walletService;
     (window as any).marketStatusService = marketStatusService;
-    console.log('🧪 DEBUG: window.testMarketRefresh(), window.marketContracts, window.castTokenService, window.walletService, and window.marketStatusService available in console');
+    console.log('🧪 DEBUG: window.testMarketRefresh(), window.marketContracts, window.castTokenService, window.walletService, window.aiResolutionScheduler, and window.marketStatusService available in console');
 
     // Cleanup on unmount
     return () => {
-      console.log('🛑 Cleaning up market status service...');
+      console.log('🛑 Cleaning up services...');
       marketStatusService.stop();
+      aiResolutionScheduler.stop();
     };
   }, []);
   
@@ -982,16 +1010,105 @@ export default function App() {
               throw new Error('Wallet not connected');
             }
 
+            const castTokenAddress = TOKEN_ADDRESSES.CAST_TOKEN;
+            const castTokenABI = [
+              'function approve(address spender, uint256 amount) external returns (bool)',
+              'function allowance(address owner, address spender) external view returns (uint256)'
+            ];
+            const castToken = new ethers.Contract(castTokenAddress, castTokenABI, connection.signer);
+
+            const betAmount = ethers.parseEther(amount.toString());
+
+            // Check current allowance
+            console.log('🔍 Checking CAST token allowance...');
+            const currentAllowance = await castToken.allowance(connection.address, contractAddress);
+            console.log(`Current allowance: ${ethers.formatEther(currentAllowance)} CAST`);
+
+            // If allowance is insufficient, request approval
+            if (currentAllowance < betAmount) {
+              console.log('⚠️ Insufficient allowance, requesting approval...');
+              toast.info('Approval required: Please approve CAST token spending in MetaMask', {
+                duration: 5000
+              });
+
+              // Request approval for this specific amount (or a larger amount for future bets)
+              const approvalAmount = betAmount * BigInt(10); // Approve 10x the bet amount for future bets
+              const approveTx = await castToken.approve(contractAddress, approvalAmount);
+
+              toast.loading('Waiting for approval confirmation...', { id: 'approval' });
+              await approveTx.wait();
+
+              toast.success('✅ CAST token approved! Now placing your bet...', { id: 'approval' });
+              console.log('✅ Approval confirmed');
+            } else {
+              console.log('✅ Sufficient allowance already exists');
+            }
+
+            // Now place the bet
             const marketABI = [
               'function placeBet(bool _position, uint256 _amount) external'
             ];
             const contract = new ethers.Contract(contractAddress, marketABI, connection.signer);
 
-            const tx = await contract.placeBet(position === 'yes', ethers.parseEther(amount.toString()));
-            const receipt = await tx.wait();
+            console.log('🎲 Placing bet on blockchain...');
+            const tx = await contract.placeBet(position === 'yes', betAmount);
+            const transactionHash = tx.hash;
+            console.log(`Transaction submitted: ${transactionHash}`);
 
-            const transactionId = receipt.hash;
-            console.log(`Trade recorded on BSC blockchain: ${transactionId}`);
+            // Show immediate feedback with tx hash
+            toast.success(
+              <div className="space-y-2">
+                <p className="font-semibold">✅ Transaction submitted!</p>
+                <p className="text-sm">Waiting for confirmation...</p>
+                <a
+                  href={`https://testnet.bscscan.com/tx/${transactionHash}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-sm text-blue-600 hover:underline font-medium block"
+                >
+                  🔗 View on BSCScan →
+                </a>
+              </div>,
+              { duration: 5000 }
+            );
+
+            // Wait for confirmation with retry logic for rate limits
+            let receipt = null;
+            let retries = 0;
+            const maxRetries = 5;
+
+            while (receipt === null && retries < maxRetries) {
+              try {
+                console.log(`Waiting for transaction confirmation (attempt ${retries + 1}/${maxRetries})...`);
+                receipt = await tx.wait(1); // Wait for 1 confirmation
+                console.log(`Trade confirmed on BSC blockchain: ${transactionHash}`);
+              } catch (waitError: any) {
+                retries++;
+
+                // Check if it's a rate limit error
+                if (waitError.code === 'UNKNOWN_ERROR' ||
+                    waitError.message?.includes('rate limit') ||
+                    waitError.data?.httpStatus === 429) {
+
+                  console.warn(`⚠️ Rate limited, retrying in ${retries * 2} seconds...`);
+
+                  if (retries < maxRetries) {
+                    await new Promise(resolve => setTimeout(resolve, retries * 2000));
+                    continue;
+                  } else {
+                    // Max retries reached, assume success and continue
+                    console.log('⚠️ Max retries reached, assuming transaction success');
+                    console.log(`Transaction hash: ${transactionHash}`);
+                    break;
+                  }
+                } else {
+                  // Different error, throw it
+                  throw waitError;
+                }
+              }
+            }
+
+            const transactionId = receipt?.hash || transactionHash;
 
             // Update bet record with blockchain transaction ID
             setUserBets(prev => prev.map(bet =>
@@ -1003,22 +1120,45 @@ export default function App() {
             // Show success toast with BSCScan link
             const displayPosition = position === 'yes' ? 'TRUE' : 'FALSE';
             const bscScanUrl = `https://testnet.bscscan.com/tx/${transactionId}`;
-            toast.success(
-              <div className="space-y-2">
-                <p className="font-semibold">✅ {displayPosition} position placed successfully!</p>
-                <p className="text-sm">{amount} CAST • Market: {market.claim.substring(0, 50)}...</p>
-                <a
-                  href={bscScanUrl}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="text-sm text-blue-600 hover:underline font-medium block"
-                  onClick={(e) => e.stopPropagation()}
-                >
-                  🔗 View Transaction on BSCScan →
-                </a>
-              </div>,
-              { duration: 8000 }
-            );
+
+            if (receipt) {
+              // Confirmed transaction
+              toast.success(
+                <div className="space-y-2">
+                  <p className="font-semibold">✅ {displayPosition} position placed successfully!</p>
+                  <p className="text-sm">{amount} CAST • Market: {market.claim.substring(0, 50)}...</p>
+                  <a
+                    href={bscScanUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-sm text-blue-600 hover:underline font-medium block"
+                    onClick={(e) => e.stopPropagation()}
+                  >
+                    🔗 View Transaction on BSCScan →
+                  </a>
+                </div>,
+                { duration: 8000 }
+              );
+            } else {
+              // Transaction submitted but confirmation timed out
+              toast.success(
+                <div className="space-y-2">
+                  <p className="font-semibold">✅ {displayPosition} position submitted!</p>
+                  <p className="text-sm text-yellow-600">Confirmation pending (BSC network delay)</p>
+                  <p className="text-sm">{amount} CAST • Market: {market.claim.substring(0, 50)}...</p>
+                  <a
+                    href={bscScanUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-sm text-blue-600 hover:underline font-medium block"
+                    onClick={(e) => e.stopPropagation()}
+                  >
+                    🔗 Check Status on BSCScan →
+                  </a>
+                </div>,
+                { duration: 10000 }
+              );
+            }
 
             // 💰 Refresh wallet balances after successful trade to show updated CAST and BNB balances
             console.log('🔄 Refreshing wallet balances after successful trade...');
@@ -1238,9 +1378,9 @@ export default function App() {
 
       // Handle different market types differently
       if (newMarket.status === 'disputable') {
-        // Disputable markets (Verify Truth) go directly to approved markets with dispute period
-        // IMPORTANT: Calculate dispute period from market expiry time, not current time
-        const disputePeriodEnd = new Date(newMarket.expiresAt.getTime() + DISPUTE_PERIOD.MILLISECONDS);
+        // Automated resolution markets (Verify Truth) go directly to approved markets
+        // Will be automatically resolved by AI
+        const disputePeriodEnd = new Date(newMarket.expiresAt.getTime() + (7 * 24 * 60 * 60 * 1000));
 
         // Create the market with dispute period
         const disputableMarket = {
@@ -1269,7 +1409,7 @@ export default function App() {
           newMarket
         );
 
-        toast.success(`Past event published for community verification! It will be disputable for ${DISPUTE_PERIOD.HOURS} hours.`);
+        toast.success(`Past event published! It will be automatically resolved by AI analysis.`);
         setCurrentTab('verify-truth'); // Return to verify truth section
       } else {
         // Regular markets were already submitted to pending approval above

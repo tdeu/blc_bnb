@@ -10,15 +10,18 @@ import { toast } from 'sonner';
 
 // Factory contract ABI - only the functions we need
 const FACTORY_ABI = [
-  "function createMarket(string memory question, uint256 endTime, string memory category, bool allowEarlyResolution) external returns (address)",
-  "function marketCount() external view returns (uint256)",
-  "function markets(uint256 index) external view returns (address)",
-  "function userMarkets(address user, uint256 index) external view returns (address)",
-  "function getUserMarketCount(address user) external view returns (uint256)"
+  "function createMarket(string memory question, uint256 endTime) external payable returns (bytes32)",
+  "function markets(bytes32 id) external view returns (address)",
+  "function allMarkets(uint256 index) external view returns (address)",
+  "function isValidMarket(address market) external view returns (bool)",
+  "event MarketCreated(bytes32 indexed id, address market, string question)"
 ];
 
 // Get factory address from environment
 const FACTORY_ADDRESS = import.meta.env.VITE_FACTORY_ADDRESS;
+
+// Market creation collateral in BNB (0.001 BNB = ~$0.60 at $600/BNB)
+const MARKET_CREATION_COLLATERAL = "0.001"; // BNB
 
 export interface CreateMarketParams {
   question: string;
@@ -29,6 +32,7 @@ export interface CreateMarketParams {
 
 export interface CreateMarketResult {
   success: boolean;
+  marketId?: string;
   marketAddress?: string;
   transactionHash?: string;
   error?: string;
@@ -62,7 +66,7 @@ class FactoryService {
   }
 
   /**
-   * Create a new prediction market on BSC
+   * Create a new prediction market on BSC with collateral payment
    */
   async createMarket(params: CreateMarketParams): Promise<CreateMarketResult> {
     try {
@@ -89,21 +93,24 @@ class FactoryService {
       // Convert end time to Unix timestamp
       const endTimeUnix = Math.floor(params.endTime.getTime() / 1000);
 
+      // Convert collateral to wei
+      const collateralWei = ethers.parseEther(MARKET_CREATION_COLLATERAL);
+
       console.log('📝 Calling factory.createMarket with:', {
         question: params.question,
         endTime: endTimeUnix,
-        category: params.category,
-        allowEarlyResolution: params.allowEarlyResolution ?? false
+        collateral: `${MARKET_CREATION_COLLATERAL} BNB`
       });
 
-      // Call createMarket on the factory contract
-      toast.info('Sending transaction to BSC...');
+      // Call createMarket on the factory contract with BNB collateral
+      toast.info(`Sending transaction with ${MARKET_CREATION_COLLATERAL} BNB collateral...`);
 
       const tx = await factory.createMarket(
         params.question,
         endTimeUnix,
-        params.category || 'General',
-        params.allowEarlyResolution ?? false
+        {
+          value: collateralWei // Send BNB as collateral
+        }
       );
 
       console.log('⏳ Transaction sent:', tx.hash);
@@ -114,7 +121,7 @@ class FactoryService {
 
       console.log('✅ Transaction confirmed:', receipt);
 
-      // Find the MarketCreated event to get the market address
+      // Find the MarketCreated event to get the market ID and address
       const marketCreatedEvent = receipt.logs
         .map((log: any) => {
           try {
@@ -130,15 +137,20 @@ class FactoryService {
         return {
           success: true,
           transactionHash: receipt.hash,
-          error: 'Market created but address not found in logs'
+          error: 'Market created but ID/address not found in logs'
         };
       }
 
+      const marketId = marketCreatedEvent.args.id;
       const marketAddress = marketCreatedEvent.args.market;
-      console.log('🎉 Market created at address:', marketAddress);
+
+      console.log('🎉 Market created:');
+      console.log('   ID:', marketId);
+      console.log('   Address:', marketAddress);
 
       return {
         success: true,
+        marketId,
         marketAddress,
         transactionHash: receipt.hash
       };
@@ -157,7 +169,7 @@ class FactoryService {
       if (error.code === 'INSUFFICIENT_FUNDS') {
         return {
           success: false,
-          error: 'Insufficient BNB for gas fees'
+          error: `Insufficient BNB. You need at least ${MARKET_CREATION_COLLATERAL} BNB plus gas fees.`
         };
       }
 
@@ -176,56 +188,35 @@ class FactoryService {
   }
 
   /**
-   * Get total number of markets created
+   * Get the collateral amount required for market creation
    */
-  async getMarketCount(): Promise<number> {
-    try {
-      const factory = await this.getFactoryContract();
-      const count = await factory.marketCount();
-      return Number(count);
-    } catch (error) {
-      console.error('Failed to get market count:', error);
-      return 0;
-    }
+  getCollateralAmount(): string {
+    return MARKET_CREATION_COLLATERAL;
   }
 
   /**
-   * Get market address by index
+   * Get market address by ID
    */
-  async getMarketByIndex(index: number): Promise<string | null> {
+  async getMarketById(marketId: string): Promise<string | null> {
     try {
       const factory = await this.getFactoryContract();
-      return await factory.markets(index);
+      return await factory.markets(marketId);
     } catch (error) {
-      console.error('Failed to get market by index:', error);
+      console.error('Failed to get market by ID:', error);
       return null;
     }
   }
 
   /**
-   * Get user's market count
+   * Check if a market address is valid
    */
-  async getUserMarketCount(userAddress: string): Promise<number> {
+  async isValidMarket(marketAddress: string): Promise<boolean> {
     try {
       const factory = await this.getFactoryContract();
-      const count = await factory.getUserMarketCount(userAddress);
-      return Number(count);
+      return await factory.isValidMarket(marketAddress);
     } catch (error) {
-      console.error('Failed to get user market count:', error);
-      return 0;
-    }
-  }
-
-  /**
-   * Get user's market by index
-   */
-  async getUserMarket(userAddress: string, index: number): Promise<string | null> {
-    try {
-      const factory = await this.getFactoryContract();
-      return await factory.userMarkets(userAddress, index);
-    } catch (error) {
-      console.error('Failed to get user market:', error);
-      return null;
+      console.error('Failed to check market validity:', error);
+      return false;
     }
   }
 

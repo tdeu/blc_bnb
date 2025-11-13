@@ -1,5 +1,5 @@
 import { supabase, ApprovedMarket } from './supabase';
-import { DISPUTE_PERIOD } from '../config/constants';
+// Dispute period removed - using automated AI resolution
 
 /**
  * Service to automatically update market statuses based on expiration and dispute periods

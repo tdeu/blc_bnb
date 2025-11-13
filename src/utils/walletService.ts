@@ -150,6 +150,121 @@ export class WalletService {
     return new Promise(resolve => setTimeout(resolve, ms));
   }
 
+  /**
+   * Validates the current MetaMask network configuration against expected BSC Testnet parameters
+   */
+  async validateNetworkConfiguration(): Promise<{ isValid: boolean; issues: string[] }> {
+    if (!window.ethereum) {
+      return { isValid: false, issues: ['MetaMask not found'] };
+    }
+
+    const issues: string[] = [];
+
+    try {
+      const chainId = await window.ethereum.request({ method: 'eth_chainId' });
+      console.log('🔍 Validating network configuration...');
+      console.log('Current chainId:', chainId);
+
+      if (chainId !== '0x61') {
+        issues.push(`Wrong chain ID: ${chainId} (expected 0x61)`);
+      }
+
+      // Try to get network version for additional validation
+      try {
+        const networkVersion = await window.ethereum.request({ method: 'net_version' });
+        console.log('Network version:', networkVersion);
+
+        if (networkVersion !== '97') {
+          issues.push(`Network version mismatch: ${networkVersion} (expected 97)`);
+        }
+      } catch (e) {
+        console.warn('Could not validate network version:', e);
+      }
+
+      // Log MetaMask provider info for diagnostics
+      if (window.ethereum.networkVersion) {
+        console.log('MetaMask networkVersion property:', window.ethereum.networkVersion);
+      }
+      if (window.ethereum.chainId) {
+        console.log('MetaMask chainId property:', window.ethereum.chainId);
+      }
+
+      console.log(`Validation result: ${issues.length === 0 ? '✅ Valid' : '❌ Invalid'}`);
+      if (issues.length > 0) {
+        console.log('Issues found:', issues);
+      }
+
+      return { isValid: issues.length === 0, issues };
+    } catch (error: any) {
+      console.error('❌ Network validation error:', error);
+      issues.push(`Validation failed: ${error.message}`);
+      return { isValid: false, issues };
+    }
+  }
+
+  /**
+   * Forces a fresh network configuration by removing and re-adding BSC Testnet
+   */
+  async forceReconfigureNetwork(): Promise<void> {
+    if (!window.ethereum) return;
+
+    console.log('🔄 Forcing network reconfiguration...');
+
+    const bscTestnetChainId = '0x61'; // 97 in hex
+    const networkConfig = {
+      chainId: bscTestnetChainId,
+      chainName: 'BSC Testnet',
+      nativeCurrency: {
+        name: 'BNB',
+        symbol: 'BNB',
+        decimals: 18
+      },
+      rpcUrls: [
+        'https://data-seed-prebsc-1-s1.binance.org:8545/'
+      ],
+      blockExplorerUrls: ['https://testnet.bscscan.com/'],
+      iconUrls: ['https://s2.coinmarketcap.com/static/img/coins/64x64/4642.png']
+    };
+
+    try {
+      // First, try to switch to another network (to reset state)
+      try {
+        await window.ethereum.request({
+          method: 'wallet_switchEthereumChain',
+          params: [{ chainId: '0x1' }], // Switch to Ethereum Mainnet temporarily
+        });
+        console.log('Switched to temporary network');
+        await this.sleep(500); // Give MetaMask time to process
+      } catch (e) {
+        // Ignore errors, network might not be available
+        console.log('Could not switch to temporary network, continuing...');
+      }
+
+      // Now add BSC Testnet with correct configuration
+      console.log('Adding BSC Testnet with correct configuration...');
+      await window.ethereum.request({
+        method: 'wallet_addEthereumChain',
+        params: [networkConfig]
+      });
+
+      console.log('✅ BSC Testnet reconfigured successfully');
+
+      // Small delay to ensure MetaMask processes the add
+      await this.sleep(500);
+
+      // Switch back to BSC Testnet
+      await window.ethereum.request({
+        method: 'wallet_switchEthereumChain',
+        params: [{ chainId: bscTestnetChainId }],
+      });
+
+      console.log('✅ Switched to BSC Testnet');
+    } catch (error: any) {
+      console.error('❌ Force reconfiguration failed:', error);
+      throw error;
+    }
+  }
+
   async ensureBSCTestnet(): Promise<void> {
     if (!window.ethereum) return;
 
@@ -158,6 +273,22 @@ export class WalletService {
       const bscTestnetChainId = '0x61'; // 97 in hex
 
       console.log(`Current chain ID: ${chainId}, Target: ${bscTestnetChainId}`);
+
+      // First, validate the network configuration
+      const validation = await this.validateNetworkConfiguration();
+      if (!validation.isValid && chainId === bscTestnetChainId) {
+        console.warn('⚠️ Network configuration issues detected:', validation.issues);
+        console.log('🔄 Attempting to reconfigure network...');
+
+        try {
+          await this.forceReconfigureNetwork();
+          console.log('✅ Network reconfiguration successful');
+          return;
+        } catch (reconfigError: any) {
+          console.error('❌ Reconfiguration failed, falling back to standard flow:', reconfigError);
+          // Fall through to standard network switching logic
+        }
+      }
 
       if (chainId !== bscTestnetChainId) {
         console.log('🔄 Switching to BSC Testnet...');

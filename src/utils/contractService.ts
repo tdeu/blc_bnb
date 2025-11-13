@@ -14,6 +14,8 @@ const PREDICTION_MARKET_ABI = [
   "function getPriceNo(uint256 sharesToBuy) public view returns (uint256)",
   "function buyYes(uint256 shares) external",
   "function buyNo(uint256 shares) external",
+  "function placeBet(bool isYes, uint256 shares) external",
+  "function collateral() external view returns (address)",
   "function resolveMarket(uint8 outcome) external",
   "function preliminaryResolve(uint8 outcome) external",
   "function finalResolve(uint8 outcome, uint256 confidenceScore) external",
@@ -168,6 +170,52 @@ export class ContractService {
 
     const tx = await marketContract.buyNo(shares);
     return tx.hash;
+  }
+
+  // Place bet with automatic token approval
+  async placeBet(
+    marketAddress: string,
+    isYes: boolean,
+    shares: string,
+    signer: ethers.Signer
+  ): Promise<string> {
+    const marketContract = new ethers.Contract(
+      marketAddress,
+      PREDICTION_MARKET_ABI,
+      signer
+    );
+
+    // Get collateral token address
+    const collateralAddress = await marketContract.collateral();
+
+    // Get cost for shares
+    const cost = isYes
+      ? await marketContract.getPriceYes(shares)
+      : await marketContract.getPriceNo(shares);
+
+    console.log(`💰 Cost for ${ethers.formatEther(shares)} shares: ${ethers.formatEther(cost)} CAST`);
+
+    // Step 1: Approve CAST tokens
+    const castToken = new ethers.Contract(
+      collateralAddress,
+      CAST_TOKEN_ABI,
+      signer
+    );
+
+    console.log(`📝 Approving ${ethers.formatEther(cost)} CAST for market ${marketAddress}...`);
+    const approveTx = await castToken.approve(marketAddress, cost);
+    console.log(`⏳ Waiting for approval transaction: ${approveTx.hash}`);
+    await approveTx.wait();
+    console.log(`✅ Approval confirmed`);
+
+    // Step 2: Place bet
+    console.log(`🎲 Placing ${isYes ? 'YES' : 'NO'} bet...`);
+    const betTx = await marketContract.placeBet(isYes, shares);
+    console.log(`⏳ Waiting for bet transaction: ${betTx.hash}`);
+    await betTx.wait();
+    console.log(`✅ Bet placed successfully!`);
+
+    return betTx.hash;
   }
 
   // Get user position

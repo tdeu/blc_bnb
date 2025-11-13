@@ -8,6 +8,7 @@ contract Treasury {
     AdminManager public adminManager;
 
     mapping(address => uint256) public tokenBalances;
+    uint256 public nativeBalance; // Track BNB balance
 
     event FeeReceived(
         address indexed token,
@@ -19,6 +20,8 @@ contract Treasury {
         uint256 amount,
         address indexed to
     );
+    event NativeReceived(uint256 amount, address indexed from);
+    event NativeWithdrawn(uint256 amount, address indexed to);
 
     modifier onlyAdmin() {
         require(adminManager.isAdmin(msg.sender), "Not admin");
@@ -27,6 +30,18 @@ contract Treasury {
 
     constructor(address _adminManager) {
         adminManager = AdminManager(_adminManager);
+    }
+
+    // Allow contract to receive BNB
+    receive() external payable {
+        nativeBalance += msg.value;
+        emit NativeReceived(msg.value, msg.sender);
+    }
+
+    // Fallback function
+    fallback() external payable {
+        nativeBalance += msg.value;
+        emit NativeReceived(msg.value, msg.sender);
     }
 
     function receiveFees(address token, uint256 amount) external {
@@ -51,5 +66,17 @@ contract Treasury {
 
     function getBalance(address token) external view returns (uint256) {
         return tokenBalances[token];
+    }
+
+    function withdrawNative(uint256 amount, address payable to) external onlyAdmin {
+        require(nativeBalance >= amount, "Insufficient native balance");
+        nativeBalance -= amount;
+        (bool success, ) = to.call{value: amount}("");
+        require(success, "Native transfer failed");
+        emit NativeWithdrawn(amount, to);
+    }
+
+    function getNativeBalance() external view returns (uint256) {
+        return nativeBalance;
     }
 }
