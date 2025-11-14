@@ -19,7 +19,7 @@
 - **Mohamed** - Nigeria | Backend & AI Integration
 - **Saad** - Morocco | Blockchain Architecture & DevOps
 
-**Contact**: info@blockcast.live
+**Contact**: contact@blockcast.live
 
 ## The Innovation: AI-Powered Oracle
 
@@ -169,4 +169,5 @@ Our AI oracle makes this possible. By automating resolution at 1/1000th the cost
 ---
 
 *Built for the Seedify x BNB Chain Prediction Markets Hackathon*
+
 
