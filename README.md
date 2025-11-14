@@ -107,7 +107,7 @@ Treasury                  →  0xAAdEd0c4115C5df5D232545A4c9A24464ee30F39
 
 ## Live Demo
 
-**🚀 Try it now**: https://blockcast-hedera.vercel.app
+**🚀 Try it now**: VERCEL LINK HERE
 **📊 Contract Explorer**: https://testnet.bscscan.com
 
 **Quick Start (5 minutes)**:
@@ -169,3 +169,4 @@ Our AI oracle makes this possible. By automating resolution at 1/1000th the cost
 ---
 
 *Built for the Seedify x BNB Chain Prediction Markets Hackathon*
+
