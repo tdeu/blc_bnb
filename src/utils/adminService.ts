@@ -121,9 +121,9 @@ class AdminService {
    */
   async getPendingMarkets(): Promise<PendingMarket[]> {
     try {
-      const pendingSubmissions = pendingMarketsService.getActivePendingMarkets();
-      
-      return pendingSubmissions.map(submission => 
+      const pendingSubmissions = await pendingMarketsService.getActivePendingMarkets();
+
+      return pendingSubmissions.map(submission =>
         pendingMarketsService.toPendingMarketFormat(submission)
       );
     } catch (error) {
@@ -138,18 +138,18 @@ class AdminService {
   async approveMarket(marketId: string, adminAddress: string, reason?: string): Promise<boolean> {
     try {
       console.log(`Admin ${adminAddress} approving market ${marketId}`);
-      
+
+      // Get original submission to find submitter address (before approval changes the status)
+      const pendingMarkets = await pendingMarketsService.getPendingMarkets();
+      const originalSubmission = pendingMarkets.find(m => m.id === marketId);
+      const submitterAddress = originalSubmission?.submittedBy || 'unknown';
+
       // Approve market in pending markets service
-      const approvedMarket = pendingMarketsService.approveMarket(marketId, adminAddress, reason);
-      
+      const approvedMarket = await pendingMarketsService.approveMarket(marketId, adminAddress, reason);
+
       if (!approvedMarket) {
         return false;
       }
-
-      // Get original submission to find submitter address
-      const pendingMarkets = pendingMarketsService.getPendingMarkets();
-      const originalSubmission = pendingMarkets.find(m => m.id === marketId);
-      const submitterAddress = originalSubmission?.submittedBy || 'unknown';
       
       // Store approved market in Supabase for permanent storage
       const supabaseSuccess = await approvedMarketsService.storeApprovedMarket(
@@ -197,9 +197,9 @@ class AdminService {
   async rejectMarket(marketId: string, adminAddress: string, reason: string): Promise<boolean> {
     try {
       console.log(`Admin ${adminAddress} rejecting market ${marketId} - Reason: ${reason}`);
-      
+
       // Reject market in pending markets service
-      const rejected = pendingMarketsService.rejectMarket(marketId, adminAddress, reason);
+      const rejected = await pendingMarketsService.rejectMarket(marketId, adminAddress, reason);
       
       if (!rejected) {
         return false;

@@ -737,10 +737,10 @@ export default function App() {
     try {
       // Load from Supabase (permanent storage)
       const supabaseMarkets = await approvedMarketsService.getApprovedMarkets();
-      
+
       // Also load from localStorage (for backward compatibility and recent approvals)
-      const localApprovedMarkets = pendingMarketsService.getApprovedMarkets();
-      
+      const localApprovedMarkets = await pendingMarketsService.getApprovedMarkets();
+
       // Combine both sources, avoiding duplicates
       const allApprovedMarkets = [...supabaseMarkets];
       localApprovedMarkets.forEach(localMarket => {
@@ -769,19 +769,19 @@ export default function App() {
       });
     } catch (error) {
       console.error('Error loading approved markets:', error);
-      
+
       // Fallback to localStorage if Supabase fails
       try {
-        const localApprovedMarkets = pendingMarketsService.getApprovedMarkets();
+        const localApprovedMarkets = await pendingMarketsService.getApprovedMarkets();
         setMarkets(currentMarkets => {
           const existingIds = new Set(currentMarkets.map(m => m.id));
           const newApprovedMarkets = localApprovedMarkets.filter(m => !existingIds.has(m.id));
-          
+
           if (newApprovedMarkets.length > 0) {
             console.log(`📦 Fallback: Adding ${newApprovedMarkets.length} approved markets from localStorage`);
             return [...currentMarkets, ...newApprovedMarkets];
           }
-          
+
           return currentMarkets;
         });
       } catch (fallbackError) {
@@ -1207,18 +1207,14 @@ export default function App() {
         imageUrl: marketData.imageUrl // Add the imageUrl field
       };
 
-      // Submit to pending markets first (for admin approval)
-      pendingMarketsService.submitMarket(
-        newMarket,
-        walletConnection.address
-      );
-
-      // Submit to BSC blockchain and wait for deployment
+      // Submit to BSC blockchain first (before storing in database)
       console.log('🔗 Attempting to create market on BSC...', {
         isWalletConnected: walletService.isConnected(),
         isFactoryConfigured: factoryService.isConfigured(),
         marketId: newMarket.id
       });
+
+      let contractAddress: string | undefined = undefined;
 
       if (factoryService.isConfigured()) {
         console.log('⏳ Starting blockchain deployment for market:', newMarket.id);
@@ -1234,16 +1230,7 @@ export default function App() {
 
           if (result.success && result.marketAddress) {
             console.log(`✅ Market created on BSC: ${result.marketAddress}`);
-
-            // Update the pending market with contract address immediately
-            const pendingMarkets = pendingMarketsService.getPendingMarkets();
-            const updatedMarkets = pendingMarkets.map(pending =>
-              pending.id === newMarket.id
-                ? { ...pending, contractAddress: result.marketAddress }
-                : pending
-            );
-            localStorage.setItem('blockcast_pending_markets', JSON.stringify(updatedMarkets));
-            console.log(`✅ Contract address ${result.marketAddress} stored with pending market ${newMarket.id}`);
+            contractAddress = result.marketAddress;
 
             // Show success toast with BSCScan link
             const bscScanUrl = `https://testnet.bscscan.com/tx/${result.transactionHash}`;
@@ -1278,6 +1265,15 @@ export default function App() {
         console.log('🔧 Wallet not connected or factory not configured - market will run in local mode');
         toast.warning('⚠️ Wallet not connected. Market created in local mode only. Connect wallet to deploy to blockchain.');
       }
+
+      // Submit to pending markets with contract address (for admin approval)
+      await pendingMarketsService.submitMarket(
+        newMarket,
+        walletConnection.address,
+        contractAddress
+      );
+
+      console.log(`📝 Market submitted to Supabase for admin approval${contractAddress ? ` with contract address ${contractAddress}` : ''}`);
 
       // Handle different market types differently
       if (newMarket.status === 'disputable') {
