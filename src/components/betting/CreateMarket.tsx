@@ -24,8 +24,7 @@ export default function CreateMarket({ onBack, onCreateMarket, marketContext = '
     description: '',
     category: '',
     country: '',
-    region: '',
-    confidenceLevel: 'medium' as 'high' | 'medium' | 'low'
+    region: ''
   });
   const [expirationDate, setExpirationDate] = useState<Date>();
   const [isCreating, setIsCreating] = useState(false);
@@ -158,7 +157,7 @@ export default function CreateMarket({ onBack, onCreateMarket, marketContext = '
       const newMarket: Partial<BettingMarket> = {
         ...formData,
         expiresAt: marketContext === 'truth-markets' ? expirationDate : new Date(), // Past events expire immediately
-        status: 'pending_approval', // Markets now require admin approval
+        status: 'pending', // Markets now require admin approval
         trending: false,
         totalPool: 0,
         yesPool: 0,
@@ -355,97 +354,80 @@ export default function CreateMarket({ onBack, onCreateMarket, marketContext = '
             </div>
           </div>
 
-          {/* Confidence Level and Expiration */}
-          <div className={`grid grid-cols-1 gap-4 ${marketContext === 'truth-markets' ? 'md:grid-cols-2' : ''}`}>
+          {/* Expiration Date */}
+          {marketContext === 'truth-markets' && (
             <div className="space-y-2">
-              <Label>Confidence Level</Label>
-              <Select value={formData.confidenceLevel} onValueChange={(value) => handleInputChange('confidenceLevel', value as 'high' | 'medium' | 'low')}>
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="high">High (Very likely to be verifiable)</SelectItem>
-                  <SelectItem value="medium">Medium (Moderately verifiable)</SelectItem>
-                  <SelectItem value="low">Low (Speculative)</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-
-            {/* Only show expiration date for truth markets (future events) */}
-            {marketContext === 'truth-markets' && (
-              <div className="space-y-2">
-                <Label htmlFor="expirationDate">
-                  Expiration Date <span className="text-red-500">*</span>
-                </Label>
-                <Input
-                  id="expirationDate"
-                  type="datetime-local"
-                  value={expirationDate && !isNaN(expirationDate.getTime())
-                    ? new Date(expirationDate.getTime() - expirationDate.getTimezoneOffset() * 60000).toISOString().slice(0, 16)
-                    : ''}
-                  onChange={(e) => {
-                    const dateStr = e.target.value;
-                    if (dateStr) {
-                      // datetime-local gives us "YYYY-MM-DDTHH:mm" in local time
-                      // When we do new Date(dateStr), it parses it as UTC
-                      // We need to create a Date that represents the local time the user selected
-                      const [datePart, timePart] = dateStr.split('T');
-                      const [year, month, day] = datePart.split('-').map(Number);
-                      const [hours, minutes] = timePart.split(':').map(Number);
-                      // Create date using local timezone
-                      const date = new Date(year, month - 1, day, hours, minutes);
-                      setExpirationDate(date);
-                    } else {
-                      setExpirationDate(undefined);
-                    }
-                  }}
-                  min={(() => {
-                    const now = new Date();
-                    return new Date(now.getTime() - now.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
-                  })()}
-                  className="text-sm"
-                />
-                {expirationDate && (() => {
-                  const now = new Date();
-                  const diff = expirationDate.getTime() - now.getTime();
-                  const minutes = Math.floor(diff / 1000 / 60);
-                  const hours = Math.floor(minutes / 60);
-                  const days = Math.floor(hours / 24);
-
-                  let durationText = '';
-                  if (days > 0) {
-                    durationText = `${days} day${days > 1 ? 's' : ''} ${hours % 24} hour${(hours % 24) !== 1 ? 's' : ''}`;
-                  } else if (hours > 0) {
-                    durationText = `${hours} hour${hours > 1 ? 's' : ''} ${minutes % 60} minute${(minutes % 60) !== 1 ? 's' : ''}`;
+              <Label htmlFor="expirationDate">
+                Expiration Date <span className="text-red-500">*</span>
+              </Label>
+              <Input
+                id="expirationDate"
+                type="datetime-local"
+                value={expirationDate && !isNaN(expirationDate.getTime())
+                  ? new Date(expirationDate.getTime() - expirationDate.getTimezoneOffset() * 60000).toISOString().slice(0, 16)
+                  : ''}
+                onChange={(e) => {
+                  const dateStr = e.target.value;
+                  if (dateStr) {
+                    // datetime-local gives us "YYYY-MM-DDTHH:mm" in local time
+                    // When we do new Date(dateStr), it parses it as UTC
+                    // We need to create a Date that represents the local time the user selected
+                    const [datePart, timePart] = dateStr.split('T');
+                    const [year, month, day] = datePart.split('-').map(Number);
+                    const [hours, minutes] = timePart.split(':').map(Number);
+                    // Create date using local timezone
+                    const date = new Date(year, month - 1, day, hours, minutes);
+                    setExpirationDate(date);
                   } else {
-                    durationText = `${minutes} minute${minutes !== 1 ? 's' : ''}`;
+                    setExpirationDate(undefined);
                   }
-
-                  const isValid = diff > 0;
-                  const isTooShort = minutes < 10;
-
-                  return (
-                    <div className={`text-xs mt-1 p-2 rounded ${
-                      !isValid ? 'bg-red-50 text-red-600 border border-red-200' :
-                      isTooShort ? 'bg-yellow-50 text-yellow-700 border border-yellow-200' :
-                      'bg-green-50 text-green-700 border border-green-200'
-                    }`}>
-                      {!isValid ? (
-                        <span>⚠️ Market must expire in the future</span>
-                      ) : isTooShort ? (
-                        <span>⚡ Very short market: expires in {durationText} (min recommended: 10 minutes)</span>
-                      ) : (
-                        <span>✅ Market will expire in {durationText}</span>
-                      )}
-                    </div>
-                  );
+                }}
+                min={(() => {
+                  const now = new Date();
+                  return new Date(now.getTime() - now.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
                 })()}
-                <p className="text-xs text-muted-foreground">
-                  Markets can be as short as 10 minutes or longer. Select when this prediction should be resolved.
-                </p>
-              </div>
-            )}
-          </div>
+                className="text-sm"
+              />
+              {expirationDate && (() => {
+                const now = new Date();
+                const diff = expirationDate.getTime() - now.getTime();
+                const minutes = Math.floor(diff / 1000 / 60);
+                const hours = Math.floor(minutes / 60);
+                const days = Math.floor(hours / 24);
+
+                let durationText = '';
+                if (days > 0) {
+                  durationText = `${days} day${days > 1 ? 's' : ''} ${hours % 24} hour${(hours % 24) !== 1 ? 's' : ''}`;
+                } else if (hours > 0) {
+                  durationText = `${hours} hour${hours > 1 ? 's' : ''} ${minutes % 60} minute${(minutes % 60) !== 1 ? 's' : ''}`;
+                } else {
+                  durationText = `${minutes} minute${minutes !== 1 ? 's' : ''}`;
+                }
+
+                const isValid = diff > 0;
+                const isTooShort = minutes < 10;
+
+                return (
+                  <div className={`text-xs mt-1 p-2 rounded ${
+                    !isValid ? 'bg-red-50 text-red-600 border border-red-200' :
+                    isTooShort ? 'bg-yellow-50 text-yellow-700 border border-yellow-200' :
+                    'bg-green-50 text-green-700 border border-green-200'
+                  }`}>
+                    {!isValid ? (
+                      <span>⚠️ Market must expire in the future</span>
+                    ) : isTooShort ? (
+                      <span>⚡ Very short market: expires in {durationText} (min recommended: 10 minutes)</span>
+                    ) : (
+                      <span>✅ Market will expire in {durationText}</span>
+                    )}
+                  </div>
+                );
+              })()}
+              <p className="text-xs text-muted-foreground">
+                Markets can be as short as 10 minutes or longer. Select when this prediction should be resolved.
+              </p>
+            </div>
+          )}
 
           {/* Add explanation for verify truth */}
           {marketContext === 'verify-truth' && (
