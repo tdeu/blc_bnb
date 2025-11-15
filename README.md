@@ -19,7 +19,7 @@
 - **Mohamed** - Nigeria | Backend & AI Integration
 - **Saad** - Morocco | Blockchain Architecture & DevOps
 
-**Contact**: info@blockcast.live
+**Contact**: contact@blockcast.live
 
 ## The Innovation: AI-Powered Oracle
 
@@ -109,7 +109,7 @@ BuyCAST                   →  0x45fEE9DAcF3Beb2C0C67dF057D068c0003C53B79
 
 ## Live Demo
 
-**🚀 Try it now**: https://blockcast-hedera.vercel.app
+**🚀 Try it now**: VERCEL LINK HERE
 **📊 Contract Explorer**: https://testnet.bscscan.com
 
 **Quick Start (5 minutes)**:
@@ -191,3 +191,5 @@ Our AI oracle makes this possible. By automating resolution at 1/1000th the cost
 ---
 
 *Built for the Seedify x BNB Chain Prediction Markets Hackathon*
+
+
