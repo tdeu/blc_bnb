@@ -257,9 +257,10 @@ export default function App() {
                 yesOdds: prices.yesOdds,
                 noOdds: prices.noOdds,
                 volume: volume, // Total CAST volume traded
+                totalPool: volume, // Total pool = reserve from blockchain
                 // Update pools based on probabilities to reflect betting activity
-                yesPool: market.totalPool * prices.yesProb,
-                noPool: market.totalPool * prices.noProb
+                yesPool: volume * prices.yesProb,
+                noPool: volume * prices.noProb
               }
             : market
         );

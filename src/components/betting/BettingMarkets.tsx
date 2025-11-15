@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../ui/card';
 import { Badge } from '../ui/badge';
 import { Button } from '../ui/button';
@@ -80,6 +80,8 @@ export default function BettingMarkets({ onPlaceBet, userBalance, onMarketSelect
   const [selectedMarket, setSelectedMarket] = useState<BettingMarket | null>(null);
   const [betPosition, setBetPosition] = useState<'yes' | 'no'>('yes');
   const [betAmount, setBetAmount] = useState('');
+  const [estimatedCost, setEstimatedCost] = useState<string | null>(null);
+  const [isCalculatingCost, setIsCalculatingCost] = useState(false);
   const [showShareModal, setShowShareModal] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedCategory, setSelectedCategory] = useState('all');
@@ -87,6 +89,50 @@ export default function BettingMarkets({ onPlaceBet, userBalance, onMarketSelect
   const [sortBy, setSortBy] = useState('trending'); // trending, recent, popular
   const [marketTypeFilter, setMarketTypeFilter] = useState('all'); // all, active, pending, resolved
   const { language } = useLanguage();
+
+  // Calculate estimated cost from blockchain when bet amount changes
+  useEffect(() => {
+    const calculateEstimatedCost = async () => {
+      if (!betAmount || !selectedMarket || parseFloat(betAmount) <= 0) {
+        setEstimatedCost(null);
+        return;
+      }
+
+      const contractAddress = (selectedMarket as any).contractAddress || (selectedMarket as any).contract_address;
+      if (!contractAddress || !contractAddress.startsWith('0x')) {
+        setEstimatedCost(null);
+        return;
+      }
+
+      setIsCalculatingCost(true);
+      try {
+        const { ethers } = await import('ethers');
+        const provider = new ethers.JsonRpcProvider('https://data-seed-prebsc-1-s1.binance.org:8545/');
+
+        const marketABI = [
+          'function getPriceYes(uint256 sharesToBuy) public view returns (uint256)',
+          'function getPriceNo(uint256 sharesToBuy) public view returns (uint256)'
+        ];
+        const contract = new ethers.Contract(contractAddress, marketABI, provider);
+
+        const shares = ethers.parseEther(betAmount);
+        const cost = betPosition === 'yes'
+          ? await contract.getPriceYes(shares)
+          : await contract.getPriceNo(shares);
+
+        const costInCast = ethers.formatEther(cost);
+        setEstimatedCost(costInCast);
+      } catch (error) {
+        console.warn('Failed to calculate cost:', error);
+        setEstimatedCost(null);
+      } finally {
+        setIsCalculatingCost(false);
+      }
+    };
+
+    const debounceTimer = setTimeout(calculateEstimatedCost, 300);
+    return () => clearTimeout(debounceTimer);
+  }, [betAmount, betPosition, selectedMarket]);
 
   // Ensure all markets have safe default values to prevent crashes
   const safeMarkets = markets.map(market => ({
@@ -184,6 +230,8 @@ export default function BettingMarkets({ onPlaceBet, userBalance, onMarketSelect
     setSelectedMarket(market);
     setBetPosition(position);
     setBetAmount('');
+    setEstimatedCost(null);
+    setIsCalculatingCost(false);
     setShowBetDialog(true);
   };
 
@@ -654,7 +702,7 @@ export default function BettingMarkets({ onPlaceBet, userBalance, onMarketSelect
               </div>
 
               <div className="space-y-2">
-                <Label htmlFor="betAmount">Amount (CAST)</Label>
+                <Label htmlFor="betAmount">Shares to Buy</Label>
                 <Input
                   id="betAmount"
                   type="number"
@@ -663,23 +711,57 @@ export default function BettingMarkets({ onPlaceBet, userBalance, onMarketSelect
                   max={userBalance}
                   value={betAmount}
                   onChange={(e) => setBetAmount(e.target.value)}
-                  placeholder="Enter amount..."
+                  placeholder="Enter number of shares..."
                 />
-                <div className="flex justify-between text-sm text-muted-foreground">
-                  <span>Balance: {userBalance.toFixed(3)} CAST</span>
-                  {betAmount && selectedMarket && (
-                    <span>
-                      Potential win: {(parseFloat(betAmount) * (betPosition === 'yes' ? selectedMarket.yesOdds : selectedMarket.noOdds)).toFixed(3)} CAST
-                    </span>
+                <div className="space-y-1 text-sm">
+                  <div className="flex justify-between text-muted-foreground">
+                    <span>Balance: {userBalance.toFixed(3)} CAST</span>
+                  </div>
+
+                  {/* Real-time cost preview */}
+                  {betAmount && parseFloat(betAmount) > 0 && (
+                    <div className="p-3 bg-blue-50 dark:bg-blue-950/20 border border-blue-200 dark:border-blue-800 rounded-lg space-y-2">
+                      <div className="flex justify-between items-center">
+                        <span className="font-medium text-blue-900 dark:text-blue-100">Actual Cost:</span>
+                        {isCalculatingCost ? (
+                          <span className="text-blue-600 dark:text-blue-400 animate-pulse">Calculating...</span>
+                        ) : estimatedCost ? (
+                          <span className="font-bold text-blue-600 dark:text-blue-400">
+                            {parseFloat(estimatedCost).toFixed(3)} CAST
+                          </span>
+                        ) : (
+                          <span className="text-blue-600 dark:text-blue-400">~{betAmount} CAST</span>
+                        )}
+                      </div>
+
+                      {estimatedCost && (
+                        <>
+                          <div className="flex justify-between text-xs text-blue-700 dark:text-blue-300">
+                            <span>Price per share:</span>
+                            <span>{(parseFloat(estimatedCost) / parseFloat(betAmount)).toFixed(4)} CAST</span>
+                          </div>
+                          <div className="flex justify-between text-xs text-green-700 dark:text-green-300 font-medium">
+                            <span>Potential win:</span>
+                            <span>{(parseFloat(estimatedCost) * (betPosition === 'yes' ? selectedMarket.yesOdds : selectedMarket.noOdds)).toFixed(3)} CAST</span>
+                          </div>
+                        </>
+                      )}
+                    </div>
                   )}
                 </div>
               </div>
             </div>
           </div>
           <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction onClick={handlePlaceBet}>
-              {!walletConnected ? 'Connect Wallet' : 'Cast Position'}
+            <AlertDialogCancel onClick={() => {
+              setEstimatedCost(null);
+              setIsCalculatingCost(false);
+            }}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handlePlaceBet}
+              disabled={isCalculatingCost || (betAmount && parseFloat(betAmount) > 0 && !estimatedCost)}
+            >
+              {!walletConnected ? 'Connect Wallet' : estimatedCost ? `Pay ${parseFloat(estimatedCost).toFixed(3)} CAST` : 'Cast Position'}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

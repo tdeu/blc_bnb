@@ -118,7 +118,8 @@
       "Bash(.env)",
       "WebFetch(domain:docs.perplexity.ai)",
       "Bash(git check-ignore:*)",
-      "Bash(.npmrc)"
+      "Bash(.npmrc)",
+      "Bash(git pull:*)"
     ],
     "deny": [],
     "ask": []

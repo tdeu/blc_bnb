@@ -39,6 +39,7 @@ contract PredictionMarket {
         uint256 timestamp
     );
     event MarketRefunded(uint256 timestamp, uint256 totalRefunded);
+    event WinningsPaidOut(address indexed winner, uint256 amount);
     struct MarketInfo {
         bytes32 id;
         string question;
@@ -58,9 +59,16 @@ contract PredictionMarket {
     uint256 public noShares;
     uint256 public reserve;
     uint256 public protocolFeeRate = 200; // Default 2% = 200/10000, configurable by super admin
+    uint256 public constant VIRTUAL_LIQUIDITY = 1000e18; // Virtual shares for price stability
 
     mapping(address => uint256) public yesBalance;
     mapping(address => uint256) public noBalance;
+
+    // Participant tracking for auto-payout
+    address[] private yesParticipants;
+    address[] private noParticipants;
+    mapping(address => bool) private hasYesPosition;
+    mapping(address => bool) private hasNoPosition;
 
     Outcome public resolvedOutcome;
     uint256 public confidenceScore;
@@ -111,8 +119,8 @@ contract PredictionMarket {
         protocolFeeRate = _protocolFeeRate;
 
         // Initialize with virtual liquidity to prevent early manipulation
-        yesShares = 1000e18; // 1000 YES shares (prevents first-bet manipulation)
-        noShares = 1000e18; // 1000 NO shares
+        yesShares = VIRTUAL_LIQUIDITY; // 1000 YES shares (prevents first-bet manipulation)
+        noShares = VIRTUAL_LIQUIDITY; // 1000 NO shares
         reserve = 0; // Start with 0 real reserve
     }
 
@@ -181,6 +189,12 @@ contract PredictionMarket {
         reserve += cost;
         yesBalance[msg.sender] += shares;
 
+        // Track participant for auto-payout
+        if (!hasYesPosition[msg.sender]) {
+            yesParticipants.push(msg.sender);
+            hasYesPosition[msg.sender] = true;
+        }
+
         // NFT minting is now user-initiated via mintNFTForPosition()
     }
 
@@ -194,6 +208,12 @@ contract PredictionMarket {
         noShares += shares;
         reserve += cost;
         noBalance[msg.sender] += shares;
+
+        // Track participant for auto-payout
+        if (!hasNoPosition[msg.sender]) {
+            noParticipants.push(msg.sender);
+            hasNoPosition[msg.sender] = true;
+        }
 
         // NFT minting is now user-initiated via mintNFTForPosition()
     }
@@ -218,6 +238,12 @@ contract PredictionMarket {
             yesShares += shares;
             reserve += cost;
             yesBalance[msg.sender] += shares;
+
+            // Track participant for auto-payout
+            if (!hasYesPosition[msg.sender]) {
+                yesParticipants.push(msg.sender);
+                hasYesPosition[msg.sender] = true;
+            }
         } else {
             uint256 cost = getPriceNo(shares);
             require(cost > 0, "Invalid cost");
@@ -231,6 +257,12 @@ contract PredictionMarket {
             noShares += shares;
             reserve += cost;
             noBalance[msg.sender] += shares;
+
+            // Track participant for auto-payout
+            if (!hasNoPosition[msg.sender]) {
+                noParticipants.push(msg.sender);
+                hasNoPosition[msg.sender] = true;
+            }
         }
 
         // NFT minting is now user-initiated via mintNFTForPosition()
@@ -281,7 +313,54 @@ contract PredictionMarket {
         // Reward creator with CAST tokens only after successful resolution
         factory.rewardCreator(marketInfo.creator);
 
+        // AUTO-PAYOUT: Distribute winnings to all winners immediately
+        _distributeWinnings(outcome);
+
         emit MarketResolution(outcome, _confidenceScore, block.timestamp);
+    }
+
+    /**
+     * @dev Internal function to auto-distribute winnings to all winners
+     * Called automatically during market resolution
+     * @param outcome The winning outcome (Yes or No)
+     */
+    function _distributeWinnings(Outcome outcome) private {
+        address[] memory winners = (outcome == Outcome.Yes) ? yesParticipants : noParticipants;
+        uint256 totalWinningShares = (outcome == Outcome.Yes)
+            ? (yesShares - VIRTUAL_LIQUIDITY)
+            : (noShares - VIRTUAL_LIQUIDITY);
+
+        // Prevent division by zero
+        if (totalWinningShares == 0) return;
+
+        // Distribute to each winner proportionally
+        for (uint256 i = 0; i < winners.length; i++) {
+            address winner = winners[i];
+            uint256 userShares = (outcome == Outcome.Yes)
+                ? yesBalance[winner]
+                : noBalance[winner];
+
+            if (userShares > 0) {
+                // Calculate proportional payout
+                uint256 payout = (userShares * reserve) / totalWinningShares;
+
+                // Transfer winnings to winner's wallet
+                require(collateral.transfer(winner, payout), "Payout failed");
+
+                // Clear user's shares (prevent double-claiming)
+                if (outcome == Outcome.Yes) {
+                    yesBalance[winner] = 0;
+                } else {
+                    noBalance[winner] = 0;
+                }
+
+                // Emit event for tracking
+                emit WinningsPaidOut(winner, payout);
+            }
+        }
+
+        // Update reserve (should be 0 or near 0 after distribution)
+        reserve = 0;
     }
 
     // 🆕 Refund all bets (for markets that never reached confidence threshold)
@@ -319,38 +398,22 @@ contract PredictionMarket {
         yesBalance[msg.sender] = 0;
         noBalance[msg.sender] = 0;
 
-        // Calculate proportional refund based on total shares
-        uint256 totalShares = yesShares + noShares;
-        uint256 refundAmount = (totalUserShares * reserve) / totalShares;
+        // Calculate proportional refund based on REAL shares only (exclude virtual liquidity)
+        uint256 totalRealShares = (yesShares - VIRTUAL_LIQUIDITY) + (noShares - VIRTUAL_LIQUIDITY);
+        uint256 refundAmount = (totalUserShares * reserve) / totalRealShares;
 
         require(refundAmount > 0, "No refund available");
         require(collateral.transfer(msg.sender, refundAmount), "Refund transfer failed");
     }
 
 
-    function redeem() external {
-        require(marketInfo.status == MarketStatus.Resolved, "Not resolved");
-
-        uint256 userShares = 0;
-        uint256 totalWinningShares = 0;
-
-        if (resolvedOutcome == Outcome.Yes) {
-            userShares = yesBalance[msg.sender];
-            totalWinningShares = yesShares;
-            yesBalance[msg.sender] = 0;
-        } else if (resolvedOutcome == Outcome.No) {
-            userShares = noBalance[msg.sender];
-            totalWinningShares = noShares;
-            noBalance[msg.sender] = 0;
-        }
-
-        require(userShares > 0, "Nothing to redeem");
-        require(totalWinningShares > 0, "No winning shares");
-
-        // Calculate proportional payout from remaining reserve (after fees)
-        uint256 payout = (userShares * reserve) / totalWinningShares;
-        require(payout > 0, "No payout available");
-        require(collateral.transfer(msg.sender, payout), "Transfer failed");
+    /**
+     * @dev DEPRECATED: Winnings are now paid automatically during resolution
+     * This function is kept for backward compatibility but will always revert
+     * since winnings are already transferred in _distributeWinnings()
+     */
+    function redeem() external pure {
+        revert("Winnings already paid automatically during market resolution");
     }
 
     function transferShares(

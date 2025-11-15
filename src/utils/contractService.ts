@@ -26,7 +26,10 @@ const PREDICTION_MARKET_ABI = [
   "function getPreliminaryOutcome() external view returns (uint8)",
   "function getConfidenceScore() external view returns (uint256)",
   "function getCurrentPrice() external view returns (uint256 priceYes, uint256 priceNo)",
-  "function getProbabilities() external view returns (uint256 probYes, uint256 probNo)"
+  "function getProbabilities() external view returns (uint256 probYes, uint256 probNo)",
+  "function reserve() external view returns (uint256)",
+  "function yesShares() external view returns (uint256)",
+  "function noShares() external view returns (uint256)"
 ];
 
 const CAST_TOKEN_ABI = [
@@ -56,6 +59,14 @@ export interface UserPosition {
   yesShares: string;
   noShares: string;
   totalValue: string;
+}
+
+export interface MarketPoolData {
+  reserve: string; // Total CAST in the pool
+  yesShares: string; // Total YES shares
+  noShares: string; // Total NO shares
+  yesPool: string; // YES side of pool (calculated)
+  noPool: string; // NO side of pool (calculated)
 }
 
 export class ContractService {
@@ -344,6 +355,42 @@ export class ContractService {
     return {
       yesProb: Number(yesProb),
       noProb: Number(noProb)
+    };
+  }
+
+  // Get pool data (reserve and shares) from blockchain
+  async getPoolData(marketAddress: string): Promise<MarketPoolData> {
+    const marketContract = new ethers.Contract(
+      marketAddress,
+      PREDICTION_MARKET_ABI,
+      this.provider
+    );
+
+    const [reserve, yesShares, noShares, probabilities] = await Promise.all([
+      marketContract.reserve(),
+      marketContract.yesShares(),
+      marketContract.noShares(),
+      marketContract.getProbabilities()
+    ]);
+
+    const reserveEth = ethers.formatEther(reserve);
+    const yesSharesEth = ethers.formatEther(yesShares);
+    const noSharesEth = ethers.formatEther(noShares);
+
+    // Calculate pool distribution based on probabilities
+    const yesProb = Number(probabilities[0]) / 100; // Convert from 0-100 to 0-1
+    const noProb = Number(probabilities[1]) / 100;
+
+    const reserveNum = parseFloat(reserveEth);
+    const yesPool = (reserveNum * yesProb).toString();
+    const noPool = (reserveNum * noProb).toString();
+
+    return {
+      reserve: reserveEth,
+      yesShares: yesSharesEth,
+      noShares: noSharesEth,
+      yesPool,
+      noPool
     };
   }
 

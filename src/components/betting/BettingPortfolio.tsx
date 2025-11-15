@@ -47,7 +47,14 @@ export default function BettingPortfolio({ userBalance, userBets: propUserBets }
   const [claimingAll, setClaimingAll] = useState(false); // Track bulk claim
 
   // Use local bets state which gets updated from localStorage
-  const userBets = localBets;
+  // FILTER: Hide old factory markets (only show new auto-payout markets)
+  const NEW_FACTORY_ADDRESS = '0x8f75f2408478CB92D7cA2f10cc3F76d0c01CBb76'.toLowerCase();
+  const userBets = localBets.filter(bet => {
+    // Only show bets from new factory with auto-payout
+    // Old factory markets are hidden for cleaner UX
+    const factoryAddress = bet.marketContractAddress?.toLowerCase() || '';
+    return factoryAddress.includes(NEW_FACTORY_ADDRESS) || bet.status === 'active';
+  });
 
   // Load bets from localStorage
   const loadBetsFromStorage = () => {
@@ -479,33 +486,12 @@ export default function BettingPortfolio({ userBalance, userBets: propUserBets }
           </p>
         </div>
 
-        {/* Wallet Actions */}
-        <div className="flex gap-2">
-          {totalPnL > 0 && (
-            <Button
-              onClick={handleWithdrawFunds}
-              className="gap-2 bg-blue-600 hover:bg-blue-700 text-white"
-              title={`Withdraw your ${totalPnL.toFixed(3)} CAST profits back to HBAR`}
-            >
-              <ArrowDownToLine className="h-4 w-4" />
-              Withdraw {totalPnL.toFixed(3)} CAST
-            </Button>
-          )}
-          {totalUnclaimedWinnings > 0 && (
-            <Button
-              onClick={handleClaimAllWinnings}
-              disabled={claimingAll}
-              className="gap-2 bg-green-600 hover:bg-green-700 text-white"
-            >
-              <TrendingUp className="h-4 w-4" />
-              {claimingAll ? 'Claiming...' : `Claim ${totalUnclaimedWinnings.toFixed(3)} CAST`}
-            </Button>
-          )}
-        </div>
+        {/* AUTO-PAYOUT: No wallet actions needed - winnings paid automatically */}
       </div>
 
-      {/* Balance & Quick Stats */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+      {/* Balance & Quick Stats - All 5 Key Metrics */}
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
+        {/* 1. Available Balance */}
         <Card className="border-border/50 bg-card/80 backdrop-blur-sm">
           <CardContent className="p-4">
             <div className="flex items-center gap-2 mb-2">
@@ -517,42 +503,60 @@ export default function BettingPortfolio({ userBalance, userBets: propUserBets }
           </CardContent>
         </Card>
 
+        {/* 2. Total Wagered */}
         <Card className="border-border/50 bg-card/80 backdrop-blur-sm">
           <CardContent className="p-4">
             <div className="flex items-center gap-2 mb-2">
               <Vote className="h-5 w-5 text-secondary" />
-              <span className="font-semibold text-secondary">Total Cast</span>
+              <span className="font-semibold text-secondary">Total Wagered</span>
             </div>
             <p className="text-2xl font-bold text-foreground">{totalCastAmount.toFixed(3)} CAST</p>
             <p className="text-sm text-muted-foreground">Across {userBets.length} positions</p>
           </CardContent>
         </Card>
 
+        {/* 3. Win Rate % */}
         <Card className="border-border/50 bg-card/80 backdrop-blur-sm">
           <CardContent className="p-4">
             <div className="flex items-center gap-2 mb-2">
               <Target className="h-5 w-5 text-green-500" />
-              <span className="font-semibold text-green-500">Truth Accuracy</span>
+              <span className="font-semibold text-green-500">Win Rate</span>
             </div>
             <p className="text-2xl font-bold text-foreground">
               {resolvedCasts.length > 0 ? `${winRate.toFixed(1)}%` : '0.0%'}
             </p>
-            <p className="text-sm text-muted-foreground">Verification success rate</p>
+            <p className="text-sm text-muted-foreground">{wonCasts.length}/{resolvedCasts.length} won</p>
           </CardContent>
         </Card>
 
+        {/* 4. Net P&L */}
         <Card className="border-border/50 bg-card/80 backdrop-blur-sm">
           <CardContent className="p-4">
             <div className="flex items-center gap-2 mb-2">
-              <TrendingUp className="h-5 w-5 text-yellow-500" />
-              <span className="font-semibold text-yellow-500">P&L</span>
+              {totalPnL >= 0 ?
+                <TrendingUp className="h-5 w-5 text-green-500" /> :
+                <TrendingDown className="h-5 w-5 text-red-500" />
+              }
+              <span className="font-semibold">Net P&L</span>
             </div>
             <p className={`text-2xl font-bold ${totalPnL >= 0 ? 'text-green-500' : 'text-red-500'}`}>
               {totalPnL >= 0 ? '+' : ''}{totalPnL.toFixed(3)} CAST
             </p>
             <p className="text-sm text-muted-foreground">
-              {winRate.toFixed(1)}% win rate
+              All-time profit/loss
             </p>
+          </CardContent>
+        </Card>
+
+        {/* 5. Active Position Value */}
+        <Card className="border-border/50 bg-card/80 backdrop-blur-sm">
+          <CardContent className="p-4">
+            <div className="flex items-center gap-2 mb-2">
+              <Zap className="h-5 w-5 text-yellow-500" />
+              <span className="font-semibold text-yellow-500">Potential Win</span>
+            </div>
+            <p className="text-2xl font-bold text-foreground">{totalPotentialWinnings.toFixed(3)} CAST</p>
+            <p className="text-sm text-muted-foreground">{activeCasts.length} active positions</p>
           </CardContent>
         </Card>
       </div>
@@ -775,63 +779,7 @@ export default function BettingPortfolio({ userBalance, userBets: propUserBets }
                       </div>
                     </div>
                     
-                    <div className="flex flex-col sm:flex-row gap-2">
-                      <Button variant="outline" size="sm" className="gap-1">
-                        <Eye className="h-3 w-3" />
-                        View Market
-                      </Button>
-
-                      {/* NFT is auto-minted on bet placement - Show "Sell Position" button directly */}
-                      {cast.nftTokenId && (
-                        <>
-                          {/* NFT Badge */}
-                          <Badge variant="secondary" className="gap-1">
-                            <Tag className="h-3 w-3" />
-                            NFT #{cast.nftTokenId}
-                          </Badge>
-
-                          {/* Check if listed */}
-                          {(() => {
-                            const listing = nftListings.get(cast.nftTokenId!);
-
-                            if (listing && listing.active) {
-                              // NFT is listed - show listing price and cancel button
-                              return (
-                                <>
-                                  <Badge className="bg-green-500/20 text-green-500 border-green-500/30 gap-1">
-                                    <DollarSign className="h-3 w-3" />
-                                    Listed: {listing.priceFormatted} HBAR
-                                  </Badge>
-                                  <Button
-                                    variant="outline"
-                                    size="sm"
-                                    className="gap-1 text-red-600 hover:text-red-700 hover:bg-red-50"
-                                    onClick={() => handleCancelListing(cast)}
-                                    disabled={cancelingListing === cast.id}
-                                  >
-                                    <X className="h-3 w-3" />
-                                    {cancelingListing === cast.id ? 'Canceling...' : 'Cancel'}
-                                  </Button>
-                                </>
-                              );
-                            } else {
-                              // NFT not listed - show "Sell Position" button
-                              return (
-                                <Button
-                                  variant="default"
-                                  size="sm"
-                                  className="gap-1 bg-blue-600 hover:bg-blue-700"
-                                  onClick={() => setListingNFT(cast)}
-                                >
-                                  <ShoppingBag className="h-3 w-3" />
-                                  Sell Position
-                                </Button>
-                              );
-                            }
-                          })()}
-                        </>
-                      )}
-                    </div>
+                    {/* Simplified - removed NFT/Sell buttons for cleaner UX */}
                   </div>
                 </CardContent>
               </Card>
@@ -907,31 +855,31 @@ export default function BettingPortfolio({ userBalance, userBets: propUserBets }
                     </div>
                     
                     <div className="flex flex-col gap-2">
-                      <Button variant="outline" size="sm" className="gap-1">
-                        <Eye className="h-3 w-3" />
-                        View Details
-                      </Button>
-
-                      {/* Claim button for won bets */}
-                      {cast.status === 'won' && cast.marketContractAddress && (
-                        <>
-                          {cast.winningsClaimed ? (
-                            <Badge className="bg-green-500/20 text-green-500 border-green-500/30">
-                              <CheckCircle className="h-3 w-3 mr-1" />
-                              Claimed
-                            </Badge>
-                          ) : (
-                            <Button
-                              size="sm"
-                              onClick={() => handleClaimWinnings(cast)}
-                              disabled={claimingBet === cast.id}
-                              className="gap-1 bg-green-600 hover:bg-green-700 text-white"
-                            >
-                              <DollarSign className="h-3 w-3" />
-                              {claimingBet === cast.id ? 'Claiming...' : `Claim ${cast.actualWinning?.toFixed(3)}`}
-                            </Button>
-                          )}
-                        </>
+                      {/* AUTO-PAYOUT: Show payout status instead of claim button */}
+                      {cast.status === 'won' && (
+                        <div className="bg-green-50 dark:bg-green-950/20 border border-green-200 dark:border-green-800 rounded-lg p-3">
+                          <div className="flex items-start gap-2">
+                            <CheckCircle className="h-5 w-5 text-green-600 flex-shrink-0 mt-0.5" />
+                            <div>
+                              <div className="font-semibold text-green-900 dark:text-green-100">
+                                Won: {cast.actualWinning?.toFixed(3)} CAST
+                              </div>
+                              <div className="text-xs text-green-700 dark:text-green-300 mt-0.5">
+                                Auto-paid {cast.resolvedAt ? formatTimeAgo(cast.resolvedAt) : 'on resolution'}
+                              </div>
+                              {cast.blockchainTxId && (
+                                <a
+                                  href={`https://testnet.bscscan.com/tx/${cast.blockchainTxId}`}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="text-xs text-green-600 hover:text-green-800 underline mt-1 inline-block"
+                                >
+                                  View transaction ↗
+                                </a>
+                              )}
+                            </div>
+                          </div>
+                        </div>
                       )}
                     </div>
                   </div>

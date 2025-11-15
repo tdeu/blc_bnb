@@ -399,7 +399,7 @@ const AdminOverview: React.FC<AdminOverviewProps> = ({ userProfile }) => {
               </div>
               <div className="flex items-center gap-2">
                 <div className="text-right">
-                  <p className="text-sm font-medium">{market.totalPool.toFixed(2)} HBAR</p>
+                  <p className="text-sm font-medium">{market.totalPool.toFixed(2)} CAST</p>
                   <p className="text-xs text-muted-foreground">{market.totalCasters} bets</p>
                 </div>
                 {showSyncButton && (
@@ -572,7 +572,7 @@ const AdminOverview: React.FC<AdminOverviewProps> = ({ userProfile }) => {
               <div className="space-y-2">
                 <div className="flex items-center gap-3">
                   <div className="h-3 w-3 bg-green-500 rounded-full"></div>
-                  <span className="text-sm">Hedera Network: Online</span>
+                  <span className="text-sm">BNB Smart Chain: Online</span>
                 </div>
                 <div className="flex items-center gap-3">
                   <div className="h-3 w-3 bg-green-500 rounded-full"></div>

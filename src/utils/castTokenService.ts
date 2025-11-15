@@ -4,7 +4,7 @@ import { walletService } from './walletService';
 import { toast } from 'sonner';
 
 // Temporary testing mode - set to true to bypass CAST token requirements
-const TESTING_MODE = true;
+const TESTING_MODE = false;
 
 const CAST_TOKEN_ABI = [
   "function balanceOf(address account) external view returns (uint256)",
