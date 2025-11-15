@@ -4,8 +4,14 @@ pragma solidity ^0.8.20;
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "./AdminManager.sol";
 
+// Interface for CAST token with burn capability
+interface IBurnableToken is IERC20 {
+    function burn(uint256 amount) external;
+}
+
 contract Treasury {
     AdminManager public adminManager;
+    address public castToken; // CAST token address for auto-burning
 
     mapping(address => uint256) public tokenBalances;
     uint256 public nativeBalance; // Track BNB balance
@@ -14,6 +20,10 @@ contract Treasury {
         address indexed token,
         uint256 amount,
         address indexed from
+    );
+    event FeesBurned(
+        address indexed token,
+        uint256 amount
     );
     event TokenWithdrawn(
         address indexed token,
@@ -28,8 +38,9 @@ contract Treasury {
         _;
     }
 
-    constructor(address _adminManager) {
+    constructor(address _adminManager, address _castToken) {
         adminManager = AdminManager(_adminManager);
+        castToken = _castToken;
     }
 
     // Allow contract to receive BNB
@@ -49,7 +60,16 @@ contract Treasury {
             IERC20(token).transferFrom(msg.sender, address(this), amount),
             "Transfer failed"
         );
-        tokenBalances[token] += amount;
+
+        // If receiving CAST tokens, burn them immediately (deflationary)
+        if (token == castToken) {
+            IBurnableToken(token).burn(amount);
+            emit FeesBurned(token, amount);
+        } else {
+            // For other tokens (e.g., other ERC20s), accumulate in treasury
+            tokenBalances[token] += amount;
+        }
+
         emit FeeReceived(token, amount, msg.sender);
     }
 

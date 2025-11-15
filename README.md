@@ -50,23 +50,25 @@ Traditional oracles are broken for emerging markets:
 
 ## Smart Contract Architecture
 
-**Production Contracts (BSC Testnet 97)**
+**Production Contracts (BSC Testnet 97) - Updated 2025-11-14**
 
 ```
-PredictionMarketFactory   →  0xA6374A11e17994F5c24aC6DB6d848e079AA6f8B0
+PredictionMarketFactory   →  0xcb24263d80EE21a81980Bf30342D114f29a49ae2  ⭐ NEW (Improved Tokenomics)
 CAST Token (ERC-20)       →  0x8B84B21AC2EB9C37EfaD196d99088Df823567e81
 BetNFT (ERC-721)          →  0x3deC8EA06Cbf76cc2378de3dc367eF29837bE43d
 AdminManager              →  0xF02840CdB0f08E6A88E1ACbd14120b1754ebd9fe
-Treasury                  →  0xAAdEd0c4115C5df5D232545A4c9A24464ee30F39
+Treasury                  →  0x54644FD3576720d16ff48Ea7E0545cb1D772D876  ⭐ NEW (Auto-Burn Feature)
+BuyCAST                   →  0x45fEE9DAcF3Beb2C0C67dF057D068c0003C53B79
 ```
 
 **Architecture Highlights**:
 - **Factory Pattern**: Gas-efficient market deployment with spam protection (0.001 BNB collateral)
-- **AMM-Based Odds**: Dynamic pricing adjusts to market sentiment
+- **AMM-Based Odds**: Dynamic pricing adjusts to market sentiment with 1000:1000 virtual liquidity (prevents manipulation)
 - **NFT Positions**: Industry-first tradeable bet positions (exit early, buy discounted)
 - **Role-Based Admin**: Quality gate for market approval before trading
-- **Treasury Economics**: 2% platform fee funds CAST buybacks and burns
+- **Deflationary Economics**: 2% platform fee automatically burns CAST tokens (reducing supply)
 - **Creator Rewards**: 100 CAST per successfully resolved market
+- **Slippage Protection**: Users set max cost tolerance (default 5%) to prevent price manipulation
 
 **Gas Costs** (Total platform overhead <$0.50 per market):
 - Market creation: ~$0.60 | Bet placement: ~$0.10 | Resolution: ~$0.05 | Claim: ~$0.10
@@ -89,7 +91,7 @@ Treasury                  →  0xAAdEd0c4115C5df5D232545A4c9A24464ee30F39
 
 **3. AI Resolution** (Automatic at expiry) → Scheduler detects expiry → Perplexity searches current evidence → If ≥80% confidence: Auto-resolves on-chain → If <80%: Flags for manual review
 
-**4. Payout** → Winners claim proportional share of losing pool → 2% platform fee to treasury → Creator receives 100 CAST reward
+**4. Payout** → 2% fee deducted from losing side → Fee automatically burned (deflationary) → Winners claim full payout from remaining pool → Creator receives 100 CAST reward
 
 **Example**: "Will BNB reach $700 by Dec 31, 2025?"
 - **Day 1**: Market created and approved
@@ -125,6 +127,8 @@ Treasury                  →  0xAAdEd0c4115C5df5D232545A4c9A24464ee30F39
 
 ## Installation (For Judges/Reviewers)
 
+### Quick Start
+
 ```bash
 # 1. Clone and install
 git clone https://github.com/yourusername/blockcast_new
@@ -135,12 +139,30 @@ npm install
 cp .env.example .env
 # Add your Perplexity API key (required for AI resolution)
 
-# 3. Start dev server
-npm run dev
-# Open http://localhost:3000
+# 3. Start all services
+start-all.bat
+# This launches:
+# - Frontend: http://localhost:3000
+# - AI Proxy: http://localhost:3001
+# - Market Monitor: http://localhost:3002
 ```
 
 **⚠️ Note**: Supabase and contracts are pre-configured for testnet. No deployment needed!
+
+### Manual Start (Alternative)
+
+If you prefer to start services individually:
+
+```bash
+# Terminal 1 - Frontend (Vite dev server)
+npm run dev
+
+# Terminal 2 - AI Proxy Server
+npm run server
+
+# Terminal 3 - Market Monitor
+npm run monitor
+```
 
 ## Project Stats
 

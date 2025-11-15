@@ -44,6 +44,7 @@ import { automaticResolutionMonitor } from './services/automaticResolutionMonito
 import { aiResolutionScheduler } from './services/aiResolutionScheduler';
 import { TestIPFS } from './pages/TestIPFS';
 import { factoryService } from './services/factoryService';
+import { placeBet } from './utils/contractService';
 
 interface UserProfile {
   id: string;
@@ -1001,7 +1002,7 @@ export default function App() {
       if (contractAddress) {
         console.log(`🚀 Placing trade on BSC blockchain contract: ${contractAddress}`);
 
-        // Place bet directly on the existing market contract using ethers.js
+        // Place bet using contractService which handles the correct function signature
         (async () => {
           try {
             const { ethers } = await import('ethers');
@@ -1010,105 +1011,28 @@ export default function App() {
               throw new Error('Wallet not connected');
             }
 
-            const castTokenAddress = TOKEN_ADDRESSES.CAST_TOKEN;
-            const castTokenABI = [
-              'function approve(address spender, uint256 amount) external returns (bool)',
-              'function allowance(address owner, address spender) external view returns (uint256)'
-            ];
-            const castToken = new ethers.Contract(castTokenAddress, castTokenABI, connection.signer);
-
             const betAmount = ethers.parseEther(amount.toString());
 
-            // Check current allowance
-            console.log('🔍 Checking CAST token allowance...');
-            const currentAllowance = await castToken.allowance(connection.address, contractAddress);
-            console.log(`Current allowance: ${ethers.formatEther(currentAllowance)} CAST`);
+            console.log('🎲 Placing bet on blockchain using contractService...');
+            toast.info('Please confirm the transaction in MetaMask', {
+              duration: 5000
+            });
 
-            // If allowance is insufficient, request approval
-            if (currentAllowance < betAmount) {
-              console.log('⚠️ Insufficient allowance, requesting approval...');
-              toast.info('Approval required: Please approve CAST token spending in MetaMask', {
-                duration: 5000
-              });
-
-              // Request approval for this specific amount (or a larger amount for future bets)
-              const approvalAmount = betAmount * BigInt(10); // Approve 10x the bet amount for future bets
-              const approveTx = await castToken.approve(contractAddress, approvalAmount);
-
-              toast.loading('Waiting for approval confirmation...', { id: 'approval' });
-              await approveTx.wait();
-
-              toast.success('✅ CAST token approved! Now placing your bet...', { id: 'approval' });
-              console.log('✅ Approval confirmed');
-            } else {
-              console.log('✅ Sufficient allowance already exists');
-            }
-
-            // Now place the bet
-            const marketABI = [
-              'function placeBet(bool _position, uint256 _amount) external'
-            ];
-            const contract = new ethers.Contract(contractAddress, marketABI, connection.signer);
-
-            console.log('🎲 Placing bet on blockchain...');
-            const tx = await contract.placeBet(position === 'yes', betAmount);
-            const transactionHash = tx.hash;
-            console.log(`Transaction submitted: ${transactionHash}`);
-
-            // Show immediate feedback with tx hash
-            toast.success(
-              <div className="space-y-2">
-                <p className="font-semibold">✅ Transaction submitted!</p>
-                <p className="text-sm">Waiting for confirmation...</p>
-                <a
-                  href={`https://testnet.bscscan.com/tx/${transactionHash}`}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="text-sm text-blue-600 hover:underline font-medium block"
-                >
-                  🔗 View on BSCScan →
-                </a>
-              </div>,
-              { duration: 5000 }
+            // Use placeBet helper which handles:
+            // - Correct 3-parameter function signature (isYes, shares, maxCost)
+            // - Token approval
+            // - Slippage calculation
+            const transactionHash = await placeBet(
+              contractAddress,
+              position === 'yes',
+              betAmount.toString(),
+              connection.signer,
+              5 // 5% slippage tolerance
             );
 
-            // Wait for confirmation with retry logic for rate limits
-            let receipt = null;
-            let retries = 0;
-            const maxRetries = 5;
+            console.log(`✅ Transaction confirmed: ${transactionHash}`);
 
-            while (receipt === null && retries < maxRetries) {
-              try {
-                console.log(`Waiting for transaction confirmation (attempt ${retries + 1}/${maxRetries})...`);
-                receipt = await tx.wait(1); // Wait for 1 confirmation
-                console.log(`Trade confirmed on BSC blockchain: ${transactionHash}`);
-              } catch (waitError: any) {
-                retries++;
-
-                // Check if it's a rate limit error
-                if (waitError.code === 'UNKNOWN_ERROR' ||
-                    waitError.message?.includes('rate limit') ||
-                    waitError.data?.httpStatus === 429) {
-
-                  console.warn(`⚠️ Rate limited, retrying in ${retries * 2} seconds...`);
-
-                  if (retries < maxRetries) {
-                    await new Promise(resolve => setTimeout(resolve, retries * 2000));
-                    continue;
-                  } else {
-                    // Max retries reached, assume success and continue
-                    console.log('⚠️ Max retries reached, assuming transaction success');
-                    console.log(`Transaction hash: ${transactionHash}`);
-                    break;
-                  }
-                } else {
-                  // Different error, throw it
-                  throw waitError;
-                }
-              }
-            }
-
-            const transactionId = receipt?.hash || transactionHash;
+            const transactionId = transactionHash;
 
             // Update bet record with blockchain transaction ID
             setUserBets(prev => prev.map(bet =>
@@ -1121,44 +1045,22 @@ export default function App() {
             const displayPosition = position === 'yes' ? 'TRUE' : 'FALSE';
             const bscScanUrl = `https://testnet.bscscan.com/tx/${transactionId}`;
 
-            if (receipt) {
-              // Confirmed transaction
-              toast.success(
-                <div className="space-y-2">
-                  <p className="font-semibold">✅ {displayPosition} position placed successfully!</p>
-                  <p className="text-sm">{amount} CAST • Market: {market.claim.substring(0, 50)}...</p>
-                  <a
-                    href={bscScanUrl}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="text-sm text-blue-600 hover:underline font-medium block"
-                    onClick={(e) => e.stopPropagation()}
-                  >
-                    🔗 View Transaction on BSCScan →
-                  </a>
-                </div>,
-                { duration: 8000 }
-              );
-            } else {
-              // Transaction submitted but confirmation timed out
-              toast.success(
-                <div className="space-y-2">
-                  <p className="font-semibold">✅ {displayPosition} position submitted!</p>
-                  <p className="text-sm text-yellow-600">Confirmation pending (BSC network delay)</p>
-                  <p className="text-sm">{amount} CAST • Market: {market.claim.substring(0, 50)}...</p>
-                  <a
-                    href={bscScanUrl}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="text-sm text-blue-600 hover:underline font-medium block"
-                    onClick={(e) => e.stopPropagation()}
-                  >
-                    🔗 Check Status on BSCScan →
-                  </a>
-                </div>,
-                { duration: 10000 }
-              );
-            }
+            toast.success(
+              <div className="space-y-2">
+                <p className="font-semibold">✅ {displayPosition} position placed successfully!</p>
+                <p className="text-sm">{amount} CAST • Market: {market.claim.substring(0, 50)}...</p>
+                <a
+                  href={bscScanUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-sm text-blue-600 hover:underline font-medium block"
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  🔗 View Transaction on BSCScan →
+                </a>
+              </div>,
+              { duration: 8000 }
+            );
 
             // 💰 Refresh wallet balances after successful trade to show updated CAST and BNB balances
             console.log('🔄 Refreshing wallet balances after successful trade...');

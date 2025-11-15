@@ -7,6 +7,7 @@
 
 import { supabase } from '../utils/supabase';
 import { perplexityResolutionService } from './perplexityResolutionService';
+import { geminiResolutionService } from './geminiResolutionService';
 import { resolutionService } from '../utils/resolutionService';
 import { toast } from 'sonner';
 
@@ -173,31 +174,67 @@ class AIResolutionScheduler {
       console.log('🤖 ============================================');
 
       // Call Perplexity AI to get resolution
-      const aiResolution = await perplexityResolutionService.resolveMarket(
+      const perplexityResolution = await perplexityResolutionService.resolveMarket(
         market.claim,
         market.description
       );
 
-      console.log('📊 AI Resolution Result:', aiResolution);
+      console.log('📊 Perplexity Resolution Result:', perplexityResolution);
 
-      if (aiResolution.needsReview) {
-        console.warn('⚠️ AI resolution needs manual review');
+      // Check if confidence is below 85% - trigger Gemini fallback
+      let geminiResolution = null;
+      if (perplexityResolution.confidence < 85) {
+        console.log('⚠️ Perplexity confidence below 85% - triggering Gemini fallback...');
 
-        // Update market with "needs review" status
-        await this.markMarketForReview(market.id, aiResolution);
+        geminiResolution = await geminiResolutionService.resolveMarket(
+          market.claim,
+          market.description
+        );
+
+        console.log('📊 Gemini Fallback Result:', geminiResolution);
+      }
+
+      // Determine if manual review is needed
+      let needsManualReview = false;
+      let finalResolution = perplexityResolution;
+      let resolutionSource = 'Perplexity AI';
+
+      if (geminiResolution) {
+        // Check if AIs disagree
+        if (perplexityResolution.outcome !== geminiResolution.outcome) {
+          console.warn('⚠️ Perplexity and Gemini disagree - marking for manual review');
+          needsManualReview = true;
+          resolutionSource = 'Perplexity AI vs Gemini (CONFLICT)';
+        } else {
+          // AIs agree - use the one with higher confidence
+          if (geminiResolution.confidence > perplexityResolution.confidence) {
+            finalResolution = geminiResolution;
+            resolutionSource = 'Gemini AI (fallback - higher confidence)';
+          } else {
+            resolutionSource = 'Perplexity AI (confirmed by Gemini)';
+          }
+        }
+      }
+
+      // If either AI needs review or they conflict, mark for manual review
+      if (perplexityResolution.needsReview || (geminiResolution && geminiResolution.needsReview) || needsManualReview) {
+        console.warn('⚠️ Resolution needs manual review');
+
+        // Update market with "needs review" status, including both AI opinions if available
+        await this.markMarketForReview(market.id, perplexityResolution, geminiResolution, resolutionSource);
 
         toast.warning(`Market "${market.claim}" needs manual review`);
         return;
       }
 
       // Update database with AI resolution
-      await this.saveResolutionToDatabase(market.id, aiResolution);
+      await this.saveResolutionToDatabase(market.id, finalResolution, resolutionSource, geminiResolution ? 'yes' : 'no');
 
       // Trigger payout automatically
-      await this.triggerPayout(market.id, market.contractAddress, aiResolution.outcome);
+      await this.triggerPayout(market.id, market.contractAddress, finalResolution.outcome);
 
       console.log('✅ Market resolved and payout triggered successfully');
-      toast.success(`Market resolved: ${aiResolution.outcome.toUpperCase()}`);
+      toast.success(`Market resolved: ${finalResolution.outcome.toUpperCase()}`);
 
     } catch (error) {
       console.error('❌ Error in triggerMarketResolution:', error);
@@ -208,7 +245,7 @@ class AIResolutionScheduler {
   /**
    * Save AI resolution to database
    */
-  private async saveResolutionToDatabase(marketId: string, resolution: any) {
+  private async saveResolutionToDatabase(marketId: string, resolution: any, source: string, geminiUsed: string) {
     try {
       if (!supabase) return;
 
@@ -221,9 +258,10 @@ class AIResolutionScheduler {
             outcome: resolution.outcome,
             confidence: resolution.confidence,
             admin_notes: resolution.reasoning,
-            source: 'Perplexity AI',
+            source: source,
             resolved_by: 'api',
-            timestamp: new Date().toISOString()
+            timestamp: new Date().toISOString(),
+            gemini_fallback_used: geminiUsed
           }
         })
         .eq('id', marketId);
@@ -243,22 +281,35 @@ class AIResolutionScheduler {
   /**
    * Mark market for manual review
    */
-  private async markMarketForReview(marketId: string, resolution: any) {
+  private async markMarketForReview(marketId: string, perplexityResolution: any, geminiResolution: any = null, source: string) {
     try {
       if (!supabase) return;
+
+      // Build admin notes with both AI opinions if available
+      let adminNotes = `AI NEEDS REVIEW:\n\nPerplexity AI: ${perplexityResolution.outcome.toUpperCase()} (${perplexityResolution.confidence}% confidence)\n${perplexityResolution.reasoning}`;
+
+      if (geminiResolution) {
+        adminNotes += `\n\nGemini AI: ${geminiResolution.outcome.toUpperCase()} (${geminiResolution.confidence}% confidence)\n${geminiResolution.reasoning}`;
+
+        if (perplexityResolution.outcome !== geminiResolution.outcome) {
+          adminNotes = `⚠️ AI CONFLICT DETECTED - MANUAL REVIEW REQUIRED\n\n` + adminNotes;
+        }
+      }
 
       const { error } = await supabase
         .from('approved_markets')
         .update({
           status: 'pending_resolution',
           resolution_data: {
-            outcome: resolution.outcome,
-            confidence: 'low',
-            admin_notes: `AI NEEDS REVIEW: ${resolution.reasoning}`,
-            source: 'Perplexity AI (needs review)',
+            outcome: perplexityResolution.outcome,
+            confidence: perplexityResolution.confidence,
+            admin_notes: adminNotes,
+            source: source,
             resolved_by: 'api',
             timestamp: new Date().toISOString(),
-            needs_manual_review: true
+            needs_manual_review: true,
+            perplexity_result: perplexityResolution,
+            gemini_result: geminiResolution
           }
         })
         .eq('id', marketId);

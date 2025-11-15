@@ -72,6 +72,10 @@ export default function MarketPage({ market, onPlaceBet, userBalance, onBack, wa
   // Activity feed state
   const [isLoadingActivity, setIsLoadingActivity] = useState(false);
 
+  // Wallet connection state
+  const [isWalletConnected, setIsWalletConnected] = useState(walletConnected);
+  const [userWalletBalance, setUserWalletBalance] = useState(0);
+
   // Helper function to get translated text
   const getTranslatedText = (text: string, translations?: { en: string; fr: string; sw: string }) => {
     if (!translations) return text;
@@ -114,6 +118,12 @@ export default function MarketPage({ market, onPlaceBet, userBalance, onBack, wa
     if (!walletConnected && onConnectWallet) {
       toast.info('Please connect your wallet to place trades');
       onConnectWallet();
+      return;
+    }
+
+    // Check if market is open for trading
+    if (market.status !== 'active' && market.status !== 'open') {
+      toast.error(`Cannot place bets - market is ${market.status}. Only open markets accept new positions.`);
       return;
     }
 
@@ -272,6 +282,11 @@ export default function MarketPage({ market, onPlaceBet, userBalance, onBack, wa
       setIsLoadingActivity(false);
     }
   };
+
+  // Sync wallet connection state with prop
+  React.useEffect(() => {
+    setIsWalletConnected(walletConnected);
+  }, [walletConnected]);
 
   // Check wallet connection and balance on component mount
   React.useEffect(() => {

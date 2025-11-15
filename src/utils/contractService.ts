@@ -14,7 +14,7 @@ const PREDICTION_MARKET_ABI = [
   "function getPriceNo(uint256 sharesToBuy) public view returns (uint256)",
   "function buyYes(uint256 shares) external",
   "function buyNo(uint256 shares) external",
-  "function placeBet(bool isYes, uint256 shares) external",
+  "function placeBet(bool isYes, uint256 shares, uint256 maxCost) external",
   "function collateral() external view returns (address)",
   "function resolveMarket(uint8 outcome) external",
   "function preliminaryResolve(uint8 outcome) external",
@@ -172,12 +172,13 @@ export class ContractService {
     return tx.hash;
   }
 
-  // Place bet with automatic token approval
+  // Place bet with automatic token approval and slippage protection
   async placeBet(
     marketAddress: string,
     isYes: boolean,
     shares: string,
-    signer: ethers.Signer
+    signer: ethers.Signer,
+    slippageTolerance: number = 5 // Default 5% slippage tolerance
   ): Promise<string> {
     const marketContract = new ethers.Contract(
       marketAddress,
@@ -193,24 +194,28 @@ export class ContractService {
       ? await marketContract.getPriceYes(shares)
       : await marketContract.getPriceNo(shares);
 
-    console.log(`💰 Cost for ${ethers.formatEther(shares)} shares: ${ethers.formatEther(cost)} CAST`);
+    // Calculate maxCost with slippage protection (default +5%)
+    const maxCost = (cost * BigInt(100 + slippageTolerance)) / BigInt(100);
 
-    // Step 1: Approve CAST tokens
+    console.log(`💰 Cost for ${ethers.formatEther(shares)} shares: ${ethers.formatEther(cost)} CAST`);
+    console.log(`🛡️ Max cost with ${slippageTolerance}% slippage: ${ethers.formatEther(maxCost)} CAST`);
+
+    // Step 1: Approve CAST tokens (approve maxCost for safety)
     const castToken = new ethers.Contract(
       collateralAddress,
       CAST_TOKEN_ABI,
       signer
     );
 
-    console.log(`📝 Approving ${ethers.formatEther(cost)} CAST for market ${marketAddress}...`);
-    const approveTx = await castToken.approve(marketAddress, cost);
+    console.log(`📝 Approving ${ethers.formatEther(maxCost)} CAST for market ${marketAddress}...`);
+    const approveTx = await castToken.approve(marketAddress, maxCost);
     console.log(`⏳ Waiting for approval transaction: ${approveTx.hash}`);
     await approveTx.wait();
     console.log(`✅ Approval confirmed`);
 
-    // Step 2: Place bet
+    // Step 2: Place bet with slippage protection
     console.log(`🎲 Placing ${isYes ? 'YES' : 'NO'} bet...`);
-    const betTx = await marketContract.placeBet(isYes, shares);
+    const betTx = await marketContract.placeBet(isYes, shares, maxCost);
     console.log(`⏳ Waiting for bet transaction: ${betTx.hash}`);
     await betTx.wait();
     console.log(`✅ Bet placed successfully!`);
@@ -402,4 +407,87 @@ export class ContractService {
     
     throw new Error(`Invalid Hedera address format: ${hederaAddress}`);
   }
+}
+
+// Helper function to retry operations with exponential backoff for rate limiting
+async function retryWithBackoff<T>(
+  operation: () => Promise<T>,
+  maxRetries: number = 3,
+  baseDelay: number = 2000
+): Promise<T> {
+  for (let attempt = 0; attempt < maxRetries; attempt++) {
+    try {
+      return await operation();
+    } catch (error: any) {
+      const isRateLimit =
+        error.code === 'UNKNOWN_ERROR' ||
+        error.code === -32005 ||
+        error.message?.includes('rate limit') ||
+        error.data?.httpStatus === 429;
+
+      if (!isRateLimit || attempt === maxRetries - 1) {
+        throw error;
+      }
+
+      const delay = baseDelay * Math.pow(2, attempt);
+      console.warn(`⚠️ Rate limited, retrying in ${delay}ms (attempt ${attempt + 1}/${maxRetries})...`);
+      await new Promise(resolve => setTimeout(resolve, delay));
+    }
+  }
+  throw new Error('Max retries exceeded');
+}
+
+// Helper function for placing bets without needing a ContractService instance
+export async function placeBet(
+  marketAddress: string,
+  isYes: boolean,
+  shares: string,
+  signer: ethers.Signer,
+  slippageTolerance: number = 5
+): Promise<string> {
+  const marketContract = new ethers.Contract(
+    marketAddress,
+    PREDICTION_MARKET_ABI,
+    signer
+  );
+
+  // Get collateral token address
+  const collateralAddress = await marketContract.collateral();
+
+  // Get cost for shares
+  const cost = isYes
+    ? await marketContract.getPriceYes(shares)
+    : await marketContract.getPriceNo(shares);
+
+  // Calculate maxCost with slippage protection (default +5%)
+  const maxCost = (cost * BigInt(100 + slippageTolerance)) / BigInt(100);
+
+  console.log(`💰 Cost for ${ethers.formatEther(shares)} shares: ${ethers.formatEther(cost)} CAST`);
+  console.log(`🛡️ Max cost with ${slippageTolerance}% slippage: ${ethers.formatEther(maxCost)} CAST`);
+
+  // Step 1: Approve CAST tokens (approve maxCost for safety)
+  const castToken = new ethers.Contract(
+    collateralAddress,
+    CAST_TOKEN_ABI,
+    signer
+  );
+
+  console.log(`📝 Approving ${ethers.formatEther(maxCost)} CAST for market ${marketAddress}...`);
+  const approveTx = await castToken.approve(marketAddress, maxCost);
+  console.log(`⏳ Waiting for approval transaction: ${approveTx.hash}`);
+
+  // Wait with retry logic for rate limiting
+  await retryWithBackoff(() => approveTx.wait());
+  console.log(`✅ Approval confirmed`);
+
+  // Step 2: Place bet with slippage protection
+  console.log(`🎲 Placing ${isYes ? 'YES' : 'NO'} bet...`);
+  const betTx = await marketContract.placeBet(isYes, shares, maxCost);
+  console.log(`⏳ Waiting for bet transaction: ${betTx.hash}`);
+
+  // Wait with retry logic for rate limiting
+  await retryWithBackoff(() => betTx.wait());
+  console.log(`✅ Bet placed successfully!`);
+
+  return betTx.hash;
 }

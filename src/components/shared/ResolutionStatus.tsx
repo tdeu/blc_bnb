@@ -151,18 +151,44 @@ export default function ResolutionStatus({
 
   const statusInfo = getStatusInfo();
 
-  const getConfidenceBadge = (confidence?: string) => {
+  const getConfidenceBadge = (confidence?: string | number) => {
     if (!confidence) return null;
 
-    const colors = {
-      high: 'bg-green-100 text-green-800',
-      medium: 'bg-yellow-100 text-yellow-800',
-      low: 'bg-red-100 text-red-800'
+    // Handle both string labels and numeric confidence scores
+    let confidenceNum: number;
+    let confidenceLabel: string;
+
+    if (typeof confidence === 'number') {
+      confidenceNum = confidence;
+      // Determine label based on percentage
+      if (confidenceNum >= 80) {
+        confidenceLabel = 'High Confidence';
+      } else if (confidenceNum >= 60) {
+        confidenceLabel = 'Moderate Confidence';
+      } else if (confidenceNum >= 40) {
+        confidenceLabel = 'Low Confidence';
+      } else {
+        confidenceLabel = 'Very Low Confidence';
+      }
+    } else {
+      // Legacy string format - convert to approximate number
+      confidenceLabel = confidence.charAt(0).toUpperCase() + confidence.slice(1) + ' Confidence';
+      if (confidence === 'high') confidenceNum = 85;
+      else if (confidence === 'medium') confidenceNum = 70;
+      else confidenceNum = 45;
+    }
+
+    // Color coding based on confidence level
+    const getColorClass = (num: number) => {
+      if (num >= 80) return 'bg-green-100 text-green-800 dark:bg-green-900/20 dark:text-green-400';
+      if (num >= 60) return 'bg-blue-100 text-blue-800 dark:bg-blue-900/20 dark:text-blue-400';
+      if (num >= 40) return 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900/20 dark:text-yellow-400';
+      return 'bg-red-100 text-red-800 dark:bg-red-900/20 dark:text-red-400';
     };
 
     return (
-      <Badge className={colors[confidence as keyof typeof colors]}>
-        {confidence.charAt(0).toUpperCase() + confidence.slice(1)} Confidence
+      <Badge className={getColorClass(confidenceNum)}>
+        {typeof confidence === 'number' ? `${confidenceNum}% (${confidenceLabel})` : confidenceLabel}
       </Badge>
     );
   };
@@ -262,6 +288,16 @@ export default function ResolutionStatus({
                 {formatTimestamp(resolution.timestamp)}
               </span>
             </div>
+
+            {/* Gemini Fallback Indicator */}
+            {resolution.gemini_fallback_used === 'yes' && (
+              <div className="flex items-center justify-between">
+                <span className="text-sm font-medium">Verification:</span>
+                <Badge className="bg-purple-100 text-purple-800 dark:bg-purple-900/20 dark:text-purple-400">
+                  ✓ Gemini verified
+                </Badge>
+              </div>
+            )}
           </div>
         )}
 
@@ -360,114 +396,15 @@ export default function ResolutionStatus({
 
         {/* Dispute actions moved to main market page */}
 
-        {/* AI Resolution Validation */}
-        {enableAIAnalysis && resolution && (
+        {/* AI Resolution Validation - Removed as API keys are configured in admin dashboard */}
+        {/* {enableAIAnalysis && resolution && (
           <>
             <Separator />
             <div className="space-y-3">
-              <div className="flex items-center justify-between">
-                <h4 className="text-sm font-medium flex items-center gap-2">
-                  <Brain className="h-4 w-4" />
-                  AI Resolution Validation
-                </h4>
-                <AIAgentSimple compact={true} />
-              </div>
-              
-              <div className="flex gap-2">
-                <Button 
-                  onClick={handleAIValidation}
-                  disabled={isValidating || aiProcessing || aiStatus !== 'ready'}
-                  size="sm"
-                  variant="outline"
-                  className="flex items-center gap-2"
-                >
-                  <Zap className="h-3 w-3" />
-                  {isValidating ? 'Validating...' : 'Validate Resolution'}
-                </Button>
-                {aiValidation && (
-                  <Button 
-                    onClick={() => setAIValidation(null)}
-                    size="sm"
-                    variant="ghost"
-                  >
-                    Clear
-                  </Button>
-                )}
-              </div>
-
-              {/* AI Validation Process */}
-              {isValidating && (
-                <div className="p-3 bg-blue-50 dark:bg-blue-900/10 rounded-lg border border-blue-200">
-                  <div className="flex items-center gap-2 mb-1">
-                    <Loader2 className="h-3 w-3 animate-spin text-blue-500" />
-                    <span className="text-xs font-medium">AI Validation in Progress...</span>
-                  </div>
-                  <p className="text-xs text-muted-foreground">
-                    Cross-referencing resolution with multi-language sources and cultural context...
-                  </p>
-                </div>
-              )}
-
-              {/* AI Validation Results */}
-              {aiValidation && (
-                <div className="space-y-2">
-                  <div className={`p-3 rounded-lg border ${
-                    aiValidation.confidence > 80 ? 'bg-green-50 dark:bg-green-900/10 border-green-200' :
-                    aiValidation.confidence > 60 ? 'bg-yellow-50 dark:bg-yellow-900/10 border-yellow-200' :
-                    'bg-red-50 dark:bg-red-900/10 border-red-200'
-                  }`}>
-                    <div className="flex items-center justify-between mb-2">
-                      <span className="text-xs font-medium">AI Confidence Score</span>
-                      <span className={`text-xs font-bold ${
-                        aiValidation.confidence > 80 ? 'text-green-600' :
-                        aiValidation.confidence > 60 ? 'text-yellow-600' :
-                        'text-red-600'
-                      }`}>
-                        {aiValidation.confidence}%
-                      </span>
-                    </div>
-                    <Progress value={aiValidation.confidence} className="h-2" />
-                  </div>
-                  
-                  {aiValidation.reasoning && (
-                    <p className="text-xs text-muted-foreground bg-muted p-2 rounded">
-                      <strong>AI Analysis:</strong> {aiValidation.reasoning}
-                    </p>
-                  )}
-                  
-                  {aiValidation.culturalContext && (
-                    <p className="text-xs text-purple-600 dark:text-purple-400 bg-purple-50 dark:bg-purple-900/10 p-2 rounded">
-                      <strong>Cultural Context:</strong> {aiValidation.culturalContext}
-                    </p>
-                  )}
-                  
-                  {aiValidation.languageSupport && (
-                    <div className="grid grid-cols-2 gap-1">
-                      {Object.entries(aiValidation.languageSupport).map(([lang, status]: [string, any]) => (
-                        <div key={lang} className="flex items-center gap-1 text-xs">
-                          <div className={`w-1.5 h-1.5 rounded-full ${
-                            status === 'confirmed' ? 'bg-green-500' : 
-                            status === 'partial' ? 'bg-yellow-500' : 'bg-red-500'
-                          }`}></div>
-                          <span>{lang}: {status}</span>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              )}
-
-              {/* Show error when AI not available */}
-              {aiStatus !== 'ready' && (
-                <div className="p-2 bg-yellow-50 dark:bg-yellow-900/10 rounded border border-yellow-200">
-                  <p className="text-xs text-yellow-700 dark:text-yellow-400">
-                    AI Agent setup required for automated resolution validation.
-                  </p>
-                </div>
-              )}
+              ...
             </div>
           </>
-        )}
+        )} */}
 
         {/* Admin Notes */}
         {resolution?.admin_notes && (

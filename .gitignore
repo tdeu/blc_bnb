@@ -49,6 +49,14 @@ typechain-types
 *.tmp
 *.temp
 .cache
+*.sql
+
+# Deployment artifacts (keep in local only)
+deploy-direct.mjs
+deploy-*.log
+*.log
+DEPLOYMENT_SUCCESS.md
+TOKENOMICS_TESTING_GUIDE.md
 
 # OS files
 Thumbs.db
@@ -62,3 +70,16 @@ uploads/
 
 # Archive (old files)
 archive/
+
+# Temporary deployment scripts (already deployed)
+scripts/deploy-bsc-tokenomics.cjs
+scripts/deploy-fixed-factory.mjs
+scripts/deploy-fixed-factory.ts
+scripts/deploy-tokenomics-final.mjs
+scripts/deploy-updated-tokenomics.js
+scripts/deploy-updated-tokenomics-fixed.js
+scripts/transfer-betnft-ownership.mjs
+scripts/transfer-ownership-direct.ts
+scripts/transfer-via-old-factory.ts
+scripts/check-old-factory.ts
+scripts/check-ownership.ts

@@ -34,7 +34,7 @@ export default function TopNavigation({ currentTab, onTabChange, isDarkMode, onT
   // Simplified main navigation - unified markets approach
   const mainNavItems = [
     { id: 'markets', label: 'Markets', icon: TrendingUp },
-    { id: 'community', label: 'Community', icon: Users },
+    // { id: 'community', label: 'Community', icon: Users }, // Hidden as requested
   ];
 
   const languageOptions = [

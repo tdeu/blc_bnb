@@ -77,7 +77,8 @@ contract PredictionMarketFactory {
         markets[id] = address(market);
         allMarkets.push(address(market));
 
-        betNFT.authorizeMarket(address(market));
+        // Market will be auto-authorized by BetNFT on first bet (BetNFT.sol:77-80)
+        // No need to pre-authorize since we don't own BetNFT
 
         // Transfer collateral to treasury
         (bool success, ) = treasury.call{value: msg.value}("");

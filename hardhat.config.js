@@ -15,7 +15,7 @@ export default {
     }
   },
   networks: {
-    // BSC Testnet (for BNB hackathon)
+    // BSC Testnet
     bscTestnet: {
       type: 'http',
       url: process.env.DEPLOYER_PRIVATE_KEY ? "https://data-seed-prebsc-1-s1.binance.org:8545/" : "",
@@ -24,29 +24,13 @@ export default {
       gasPrice: 10000000000,
       gas: 10000000
     },
-    // Hedera networks (preserved for other hackathon)
-    hederaTestnet: {
+    // BSC Mainnet (for future production deployment)
+    bscMainnet: {
       type: 'http',
-      url: "https://testnet.hashio.io/api",
-      accounts: process.env.HEDERA_PRIVATE_KEY ? [process.env.HEDERA_PRIVATE_KEY] : [],
-      chainId: 296,
-      gasPrice: 20000000000,
-      gas: 10000000
-    },
-    hederaMainnet: {
-      type: 'http',
-      url: "https://mainnet.hashio.io/api",
-      accounts: process.env.HEDERA_PRIVATE_KEY ? [process.env.HEDERA_PRIVATE_KEY] : [],
-      chainId: 295,
-      gasPrice: 20000000000,
-      gas: 10000000
-    },
-    hederaPreviewnet: {
-      type: 'http',
-      url: "https://previewnet.hashio.io/api", 
-      accounts: process.env.HEDERA_PRIVATE_KEY ? [process.env.HEDERA_PRIVATE_KEY] : [],
-      chainId: 297,
-      gasPrice: 20000000000,
+      url: "https://bsc-dataseed1.binance.org/",
+      accounts: process.env.DEPLOYER_PRIVATE_KEY ? [process.env.DEPLOYER_PRIVATE_KEY] : [],
+      chainId: 56,
+      gasPrice: 5000000000,
       gas: 10000000
     }
   },

@@ -162,7 +162,7 @@ const ResolutionManager: React.FC<ResolutionManagerProps> = ({ userProfile }) =>
         market.id,
         market.claim,
         market.description,
-        (market as any).contractAddress
+        (market as any).contract_address
       );
 
       toast.success('Market resolved successfully!');
@@ -222,13 +222,105 @@ const ResolutionManager: React.FC<ResolutionManagerProps> = ({ userProfile }) =>
               <Brain className="h-6 w-6" />
               <h4 className="text-lg font-semibold">Resolved by AI</h4>
             </div>
-            <div className="text-center">
+            <div className="text-center space-y-2">
               <Badge className={`text-lg px-4 py-2 ${market.resolution_data.final_outcome === 'yes' ? 'bg-green-500' : 'bg-red-500'} text-white`}>
                 {market.resolution_data.final_outcome === 'yes' ? 'TRUE' : 'FALSE'}
               </Badge>
+
+              {/* Confidence Score */}
+              {market.resolution_data.confidence !== undefined && (
+                <div className="flex justify-center">
+                  <Badge
+                    className={`${
+                      market.resolution_data.confidence >= 80
+                        ? 'bg-green-100 text-green-800 dark:bg-green-900/20 dark:text-green-400'
+                        : market.resolution_data.confidence >= 60
+                        ? 'bg-blue-100 text-blue-800 dark:bg-blue-900/20 dark:text-blue-400'
+                        : market.resolution_data.confidence >= 40
+                        ? 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900/20 dark:text-yellow-400'
+                        : 'bg-red-100 text-red-800 dark:bg-red-900/20 dark:text-red-400'
+                    }`}
+                  >
+                    {market.resolution_data.confidence}% ({
+                      market.resolution_data.confidence >= 80 ? 'High Confidence' :
+                      market.resolution_data.confidence >= 60 ? 'Moderate Confidence' :
+                      market.resolution_data.confidence >= 40 ? 'Low Confidence' : 'Very Low Confidence'
+                    })
+                  </Badge>
+                </div>
+              )}
+
+              {/* Gemini Fallback Status */}
+              {market.resolution_data.confidence !== undefined && (
+                <div className="flex justify-center">
+                  <Badge
+                    className={`${
+                      market.resolution_data.gemini_fallback_used === 'yes'
+                        ? 'bg-purple-100 text-purple-800 dark:bg-purple-900/20 dark:text-purple-400'
+                        : market.resolution_data.confidence >= 85
+                        ? 'bg-blue-100 text-blue-800 dark:bg-blue-900/20 dark:text-blue-400'
+                        : 'bg-orange-100 text-orange-800 dark:bg-orange-900/20 dark:text-orange-400'
+                    }`}
+                  >
+                    {market.resolution_data.gemini_fallback_used === 'yes'
+                      ? '✓ Gemini fallback used'
+                      : market.resolution_data.confidence >= 85
+                      ? 'No Gemini fallback required'
+                      : 'Gemini fallback required'}
+                  </Badge>
+                </div>
+              )}
+
+              {/* AI Source */}
+              {market.resolution_data.source && (
+                <div className="flex justify-center">
+                  <Badge variant="outline" className="text-xs">
+                    {market.resolution_data.source}
+                  </Badge>
+                </div>
+              )}
             </div>
+            {/* Show both AI opinions if there's a conflict */}
+            {market.resolution_data.perplexity_result && market.resolution_data.gemini_result && (
+              <div className="mt-4 space-y-3 border-t pt-3">
+                <h5 className="text-sm font-semibold text-center">AI Opinions Comparison</h5>
+
+                {/* Perplexity Result */}
+                <div className="bg-blue-50 dark:bg-blue-900/10 p-3 rounded-lg">
+                  <div className="flex items-center justify-between mb-2">
+                    <span className="text-xs font-semibold text-blue-800 dark:text-blue-400">Perplexity AI</span>
+                    <Badge className={market.resolution_data.perplexity_result.outcome === 'yes' ? 'bg-green-500' : 'bg-red-500'}>
+                      {market.resolution_data.perplexity_result.outcome.toUpperCase()}
+                    </Badge>
+                  </div>
+                  <p className="text-xs text-gray-600 dark:text-gray-400 mb-1">
+                    Confidence: {market.resolution_data.perplexity_result.confidence}%
+                  </p>
+                  <p className="text-xs text-gray-700 dark:text-gray-300">
+                    {market.resolution_data.perplexity_result.reasoning}
+                  </p>
+                </div>
+
+                {/* Gemini Result */}
+                <div className="bg-purple-50 dark:bg-purple-900/10 p-3 rounded-lg">
+                  <div className="flex items-center justify-between mb-2">
+                    <span className="text-xs font-semibold text-purple-800 dark:text-purple-400">Gemini AI</span>
+                    <Badge className={market.resolution_data.gemini_result.outcome === 'yes' ? 'bg-green-500' : 'bg-red-500'}>
+                      {market.resolution_data.gemini_result.outcome.toUpperCase()}
+                    </Badge>
+                  </div>
+                  <p className="text-xs text-gray-600 dark:text-gray-400 mb-1">
+                    Confidence: {market.resolution_data.gemini_result.confidence}%
+                  </p>
+                  <p className="text-xs text-gray-700 dark:text-gray-300">
+                    {market.resolution_data.gemini_result.reasoning}
+                  </p>
+                </div>
+              </div>
+            )}
+
             {market.resolution_data.admin_notes && (
-              <p className="text-sm text-gray-600 dark:text-gray-400 text-center">
+              <p className="text-sm text-gray-600 dark:text-gray-400 text-center whitespace-pre-line">
                 {market.resolution_data.admin_notes}
               </p>
             )}

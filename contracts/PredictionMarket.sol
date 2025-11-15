@@ -110,9 +110,9 @@ contract PredictionMarket {
         require(_protocolFeeRate <= 1000, "Fee rate too high"); // Max 10%
         protocolFeeRate = _protocolFeeRate;
 
-        // Initialize with minimal virtual liquidity for balanced pricing
-        yesShares = 1e18; // 1 YES share
-        noShares = 1e18; // 1 NO share
+        // Initialize with virtual liquidity to prevent early manipulation
+        yesShares = 1000e18; // 1000 YES shares (prevents first-bet manipulation)
+        noShares = 1000e18; // 1000 NO shares
         reserve = 0; // Start with 0 real reserve
     }
 
@@ -199,14 +199,16 @@ contract PredictionMarket {
     }
 
     /**
-     * @dev Unified bet placement function (for frontend compatibility)
+     * @dev Unified bet placement function with slippage protection
      * @param isYes true for YES, false for NO
      * @param shares Number of shares to buy
+     * @param maxCost Maximum CAST tokens willing to pay (slippage protection)
      */
-    function placeBet(bool isYes, uint256 shares) external isOpen {
+    function placeBet(bool isYes, uint256 shares, uint256 maxCost) external isOpen {
         if (isYes) {
             uint256 cost = getPriceYes(shares);
             require(cost > 0, "Invalid cost");
+            require(cost <= maxCost, "Cost exceeds maxCost (slippage)");
 
             require(
                 collateral.transferFrom(msg.sender, address(this), cost),
@@ -219,6 +221,7 @@ contract PredictionMarket {
         } else {
             uint256 cost = getPriceNo(shares);
             require(cost > 0, "Invalid cost");
+            require(cost <= maxCost, "Cost exceeds maxCost (slippage)");
 
             require(
                 collateral.transferFrom(msg.sender, address(this), cost),
@@ -256,9 +259,15 @@ contract PredictionMarket {
         resolvedOutcome = outcome;
         confidenceScore = _confidenceScore;
 
-        // Calculate and send protocol fees (configurable %)
+        // Calculate protocol fees from LOSING side only (winners get full payout)
         uint256 totalReserve = reserve;
-        uint256 protocolFees = (totalReserve * protocolFeeRate) / 10000;
+        uint256 totalShares = yesShares + noShares;
+        uint256 losingShares = (outcome == Outcome.Yes) ? noShares : yesShares;
+
+        // Fee = (losing side's proportion of pool) * fee rate
+        // This ensures winners get full winnings, losers pay the fee
+        uint256 losingContribution = (losingShares * totalReserve) / totalShares;
+        uint256 protocolFees = (losingContribution * protocolFeeRate) / 10000;
 
         if (protocolFees > 0) {
             require(

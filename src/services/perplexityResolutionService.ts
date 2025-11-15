@@ -11,7 +11,7 @@ const PERPLEXITY_API_URL = 'https://api.perplexity.ai/chat/completions';
 export interface PerplexityResolution {
   outcome: 'yes' | 'no';
   reasoning: string;
-  confidence: 'high' | 'medium' | 'low';
+  confidence: number; // 0-100 percentage
   sources?: string[];
   needsReview: boolean;
 }
@@ -27,7 +27,7 @@ class PerplexityResolutionService {
         return {
           outcome: 'no',
           reasoning: 'API key not configured',
-          confidence: 'low',
+          confidence: 0,
           needsReview: true
         };
       }
@@ -68,7 +68,7 @@ class PerplexityResolutionService {
         return {
           outcome: 'no',
           reasoning: `API error: ${response.status}`,
-          confidence: 'low',
+          confidence: 0,
           needsReview: true
         };
       }
@@ -89,7 +89,7 @@ class PerplexityResolutionService {
       return {
         outcome: 'no',
         reasoning: `Error: ${error instanceof Error ? error.message : 'Unknown error'}`,
-        confidence: 'low',
+        confidence: 0,
         needsReview: true
       };
     }
@@ -106,11 +106,17 @@ class PerplexityResolutionService {
       prompt += `\nContext: ${description}\n`;
     }
 
-    prompt += `\nProvide your answer in this exact format:
-- First line: ONLY "YES" or "NO"
-- Following lines: 2-3 sentences explaining your reasoning with factual evidence
+    prompt += `\nProvide your answer in this EXACT format:
+Line 1: ONLY "YES" or "NO"
+Line 2: ONLY a confidence percentage from 0-100 (e.g., "85" for 85% confidence)
+Line 3+: 2-3 sentences explaining your reasoning with factual evidence
 
-Be objective and base your answer on verifiable facts only.`;
+Example response:
+YES
+92
+Bitcoin's current price is $95,000 according to CoinMarketCap as of today. This is well below the $200,000 threshold mentioned in the question.
+
+Be objective and base your answer on verifiable, current facts only.`;
 
     return prompt;
   }
@@ -125,7 +131,7 @@ Be objective and base your answer on verifiable facts only.`;
       return {
         outcome: 'no',
         reasoning: 'No response from AI',
-        confidence: 'low',
+        confidence: 0,
         needsReview: true
       };
     }
@@ -143,42 +149,33 @@ Be objective and base your answer on verifiable facts only.`;
       return {
         outcome: 'no',
         reasoning: response,
-        confidence: 'low',
+        confidence: 0,
         needsReview: true
       };
     }
 
-    // Extract reasoning (everything after first line)
-    const reasoning = lines.slice(1).join(' ').trim() || 'No reasoning provided';
+    // Extract confidence (second line - should be a number 0-100)
+    let confidence = 50; // Default to medium confidence if not provided
+    if (lines.length >= 2) {
+      const confidenceLine = lines[1].trim();
+      const confidenceNum = parseInt(confidenceLine);
+      if (!isNaN(confidenceNum) && confidenceNum >= 0 && confidenceNum <= 100) {
+        confidence = confidenceNum;
+        console.log(`✅ Extracted confidence: ${confidence}%`);
+      } else {
+        console.warn(`⚠️ Invalid confidence format: "${confidenceLine}", using default 50%`);
+      }
+    }
 
-    // Determine confidence based on response clarity
-    const confidence = this.determineConfidence(response);
+    // Extract reasoning (everything after line 2, or line 1 if confidence wasn't provided)
+    const reasoning = lines.slice(2).join(' ').trim() || lines.slice(1).join(' ').trim() || 'No reasoning provided';
 
     return {
       outcome,
       reasoning,
       confidence,
-      needsReview: confidence === 'low'
+      needsReview: confidence < 60 // Mark for review if confidence is below 60%
     };
-  }
-
-  /**
-   * Determine confidence level based on response characteristics
-   */
-  private determineConfidence(response: string): 'high' | 'medium' | 'low' {
-    const lowerResponse = response.toLowerCase();
-
-    // High confidence indicators
-    const highConfidenceWords = ['confirmed', 'verified', 'officially', 'announced', 'proven', 'definitely'];
-    const hasHighConfidence = highConfidenceWords.some(word => lowerResponse.includes(word));
-
-    // Low confidence indicators
-    const lowConfidenceWords = ['unclear', 'uncertain', 'possibly', 'maybe', 'unverified', 'alleged'];
-    const hasLowConfidence = lowConfidenceWords.some(word => lowerResponse.includes(word));
-
-    if (hasLowConfidence) return 'low';
-    if (hasHighConfidence && response.length > 100) return 'high';
-    return 'medium';
   }
 
   /**

@@ -197,6 +197,13 @@ export default function BettingMarkets({ onPlaceBet, userBalance, onMarketSelect
 
     if (!selectedMarket || !betAmount) return;
 
+    // Check if market is open for trading
+    if (selectedMarket.status !== 'active' && selectedMarket.status !== 'open') {
+      toast.error(`Cannot place bets - market is ${selectedMarket.status}. Only open markets accept new positions.`);
+      setShowBetDialog(false);
+      return;
+    }
+
     const amount = parseFloat(betAmount);
     if (isNaN(amount) || amount <= 0) {
       toast.error('Please enter a valid amount');
@@ -539,17 +546,50 @@ export default function BettingMarkets({ onPlaceBet, userBalance, onMarketSelect
 
                           {/* Final outcome if resolved */}
                           {market.resolution_data?.final_outcome ? (
-                            <div className="text-center">
-                              <div className="text-xs text-muted-foreground mb-1">Final Result:</div>
-                              <Badge
-                                className={`text-sm font-bold rounded-full px-4 py-1 shadow-md ${
-                                  market.resolution_data.final_outcome === 'yes'
-                                    ? 'bg-green-500 text-white'
-                                    : 'bg-red-500 text-white'
-                                }`}
-                              >
-                                ✓ {market.resolution_data.final_outcome.toUpperCase()}
-                              </Badge>
+                            <div className="text-center space-y-2">
+                              <div>
+                                <div className="text-xs text-muted-foreground mb-1">Final Result:</div>
+                                <Badge
+                                  className={`text-sm font-bold rounded-full px-4 py-1 shadow-md ${
+                                    market.resolution_data.final_outcome === 'yes'
+                                      ? 'bg-green-500 text-white'
+                                      : 'bg-red-500 text-white'
+                                  }`}
+                                >
+                                  ✓ {market.resolution_data.final_outcome.toUpperCase()}
+                                </Badge>
+                              </div>
+                              {/* Show confidence score if available */}
+                              {market.resolution_data.confidence !== undefined && (
+                                <div className="text-xs space-y-1">
+                                  <Badge
+                                    className={`${
+                                      market.resolution_data.confidence >= 80
+                                        ? 'bg-green-100 text-green-800 dark:bg-green-900/20 dark:text-green-400'
+                                        : market.resolution_data.confidence >= 60
+                                        ? 'bg-blue-100 text-blue-800 dark:bg-blue-900/20 dark:text-blue-400'
+                                        : market.resolution_data.confidence >= 40
+                                        ? 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900/20 dark:text-yellow-400'
+                                        : 'bg-red-100 text-red-800 dark:bg-red-900/20 dark:text-red-400'
+                                    }`}
+                                  >
+                                    {market.resolution_data.confidence}% ({
+                                      market.resolution_data.confidence >= 80 ? 'High' :
+                                      market.resolution_data.confidence >= 60 ? 'Moderate' :
+                                      market.resolution_data.confidence >= 40 ? 'Low' : 'Very Low'
+                                    } Confidence)
+                                  </Badge>
+
+                                  {/* Show Gemini fallback badge if used */}
+                                  {market.resolution_data.gemini_fallback_used === 'yes' && (
+                                    <div>
+                                      <Badge className="bg-purple-100 text-purple-800 dark:bg-purple-900/20 dark:text-purple-400">
+                                        ✓ Gemini verified
+                                      </Badge>
+                                    </div>
+                                  )}
+                                </div>
+                              )}
                             </div>
                           ) : (
                             <div className="text-center text-xs text-muted-foreground">
@@ -580,62 +620,62 @@ export default function BettingMarkets({ onPlaceBet, userBalance, onMarketSelect
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>Cast Your Truth Position</AlertDialogTitle>
-            <AlertDialogDescription className="space-y-3">
-              <div className="p-3 bg-muted rounded-lg">
-                <p className="font-medium">{selectedMarket?.claim}</p>
-                <p className="text-sm text-muted-foreground mt-1">
-                  Source: {selectedMarket?.source}
-                </p>
-              </div>
-              
-              <div className="space-y-3">
-                <div className="grid grid-cols-2 gap-3">
-                  <Button
-                    variant={betPosition === 'yes' ? 'default' : 'outline'}
-                    onClick={() => setBetPosition('yes')}
-                    className="h-auto p-3 flex-col gap-1"
-                  >
-                    <span className="text-lg">True</span>
-                    <span className="text-sm opacity-80">
-                      {selectedMarket?.yesOdds.toFixed(2)}x odds
-                    </span>
-                  </Button>
-                  <Button
-                    variant={betPosition === 'no' ? 'default' : 'outline'}
-                    onClick={() => setBetPosition('no')}
-                    className="h-auto p-3 flex-col gap-1"
-                  >
-                    <span className="text-lg">False</span>
-                    <span className="text-sm opacity-80">
-                      {selectedMarket?.noOdds.toFixed(2)}x odds
-                    </span>
-                  </Button>
-                </div>
-                
-                <div className="space-y-2">
-                  <Label htmlFor="betAmount">Amount (CAST)</Label>
-                  <Input
-                    id="betAmount"
-                    type="number"
-                    step="0.001"
-                    min="0.001"
-                    max={userBalance}
-                    value={betAmount}
-                    onChange={(e) => setBetAmount(e.target.value)}
-                    placeholder="Enter amount..."
-                  />
-                  <div className="flex justify-between text-sm text-muted-foreground">
-                    <span>Balance: {userBalance.toFixed(3)} CAST</span>
-                    {betAmount && selectedMarket && (
-                      <span>
-                        Potential win: {(parseFloat(betAmount) * (betPosition === 'yes' ? selectedMarket.yesOdds : selectedMarket.noOdds)).toFixed(3)} CAST
-                      </span>
-                    )}
-                  </div>
-                </div>
-              </div>
-            </AlertDialogDescription>
           </AlertDialogHeader>
+          <div className="space-y-3">
+            <div className="p-3 bg-muted rounded-lg">
+              <div className="font-medium">{selectedMarket?.claim}</div>
+              <div className="text-sm text-muted-foreground mt-1">
+                Source: {selectedMarket?.source}
+              </div>
+            </div>
+
+            <div className="space-y-3">
+              <div className="grid grid-cols-2 gap-3">
+                <Button
+                  variant={betPosition === 'yes' ? 'default' : 'outline'}
+                  onClick={() => setBetPosition('yes')}
+                  className="h-auto p-3 flex-col gap-1"
+                >
+                  <span className="text-lg">True</span>
+                  <span className="text-sm opacity-80">
+                    {selectedMarket?.yesOdds.toFixed(2)}x odds
+                  </span>
+                </Button>
+                <Button
+                  variant={betPosition === 'no' ? 'default' : 'outline'}
+                  onClick={() => setBetPosition('no')}
+                  className="h-auto p-3 flex-col gap-1"
+                >
+                  <span className="text-lg">False</span>
+                  <span className="text-sm opacity-80">
+                    {selectedMarket?.noOdds.toFixed(2)}x odds
+                  </span>
+                </Button>
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="betAmount">Amount (CAST)</Label>
+                <Input
+                  id="betAmount"
+                  type="number"
+                  step="0.001"
+                  min="0.001"
+                  max={userBalance}
+                  value={betAmount}
+                  onChange={(e) => setBetAmount(e.target.value)}
+                  placeholder="Enter amount..."
+                />
+                <div className="flex justify-between text-sm text-muted-foreground">
+                  <span>Balance: {userBalance.toFixed(3)} CAST</span>
+                  {betAmount && selectedMarket && (
+                    <span>
+                      Potential win: {(parseFloat(betAmount) * (betPosition === 'yes' ? selectedMarket.yesOdds : selectedMarket.noOdds)).toFixed(3)} CAST
+                    </span>
+                  )}
+                </div>
+              </div>
+            </div>
+          </div>
           <AlertDialogFooter>
             <AlertDialogCancel>Cancel</AlertDialogCancel>
             <AlertDialogAction onClick={handlePlaceBet}>

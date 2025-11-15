@@ -116,7 +116,9 @@
       "Bash(BUYCAST_ADDRESS=0x45fEE9DAcF3Beb2C0C67dF057D068c0003C53B79 node:*)",
       "Bash(C:UsersthomaBureaublockcast_newsrccomponentsuitabs.tsx 2)",
       "Bash(.env)",
-      "WebFetch(domain:docs.perplexity.ai)"
+      "WebFetch(domain:docs.perplexity.ai)",
+      "Bash(git check-ignore:*)",
+      "Bash(.npmrc)"
     ],
     "deny": [],
     "ask": []

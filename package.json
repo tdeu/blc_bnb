@@ -3,7 +3,6 @@
       "version": "0.1.0",
       "private": true,
       "dependencies": {
-            "@hashgraph/sdk": "^2.72.0",
             "@langchain/anthropic": "^0.3.27",
             "@langchain/core": "^0.3.75",
             "@langchain/openai": "^0.6.11",
@@ -50,7 +49,6 @@
             "embla-carousel-react": "^8.6.0",
             "ethers": "^6.15.0",
             "express": "^5.1.0",
-            "hedera-agent-kit": "^3.2.0",
             "hono": "^4.0.0",
             "input-otp": "^1.4.2",
             "ipfs-http-client": "^60.0.1",
@@ -89,7 +87,9 @@
             "server": "npx tsx src/api/anthropic-proxy.ts",
             "monitor": "npx tsx src/api/market-monitor-server.ts",
             "evidence-server": "npx tsx src/api/evidence-review-server.ts",
-            "monitor:tick": "curl -s -X POST http://localhost:3002/run-once | jq ."
+            "monitor:tick": "curl -s -X POST http://localhost:3002/run-once | jq .",
+            "deploy:tokenomics": "npx hardhat run scripts/deploy-updated-tokenomics.js --network bscTestnet",
+            "deploy:tokenomics:dry": "npx hardhat run scripts/deploy-updated-tokenomics.js --network hardhat"
       },
       "type": "module"
 }
