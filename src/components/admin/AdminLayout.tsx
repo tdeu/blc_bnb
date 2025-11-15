@@ -22,11 +22,10 @@ const AdminLayout: React.FC<AdminLayoutProps> = ({
 }) => {
   const adminTabs = [
     { id: 'overview', label: 'Overview', icon: BarChart3 },
-    { id: 'markets', label: 'Market Approval', icon: FileCheck },
-    { id: 'resolution', label: 'Resolution Manager', icon: Clock },
+    { id: 'markets', label: 'Markets', icon: FileCheck },
+    { id: 'users', label: 'Users', icon: Users },
     { id: 'treasury', label: 'Treasury', icon: Wallet },
-    { id: 'tokens', label: 'Token Management', icon: Coins },
-    { id: 'users', label: 'User Management', icon: Users },
+    { id: 'reports', label: 'Reports', icon: Clock },
   ];
 
   return (

@@ -47,14 +47,8 @@ export default function BettingPortfolio({ userBalance, userBets: propUserBets }
   const [claimingAll, setClaimingAll] = useState(false); // Track bulk claim
 
   // Use local bets state which gets updated from localStorage
-  // FILTER: Hide old factory markets (only show new auto-payout markets)
-  const NEW_FACTORY_ADDRESS = '0x8f75f2408478CB92D7cA2f10cc3F76d0c01CBb76'.toLowerCase();
-  const userBets = localBets.filter(bet => {
-    // Only show bets from new factory with auto-payout
-    // Old factory markets are hidden for cleaner UX
-    const factoryAddress = bet.marketContractAddress?.toLowerCase() || '';
-    return factoryAddress.includes(NEW_FACTORY_ADDRESS) || bet.status === 'active';
-  });
+  // Show ALL bets regardless of factory address
+  const userBets = localBets;
 
   // Load bets from localStorage
   const loadBetsFromStorage = () => {
@@ -673,52 +667,6 @@ export default function BettingPortfolio({ userBalance, userBets: propUserBets }
             </CardContent>
           </Card>
 
-          {/* Recent Activity */}
-          <Card className="border-border/50 bg-card/80 backdrop-blur-sm">
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <Activity className="h-5 w-5" />
-                Recent Truth Casts
-              </CardTitle>
-              <CardDescription>Your latest verification positions</CardDescription>
-            </CardHeader>
-            <CardContent>
-              <div className="space-y-3">
-                {userBets.slice(0, 5).map((cast) => (
-                  <div key={cast.id} className="flex items-center justify-between p-3 bg-muted/20 rounded-lg">
-                    <div className="flex items-center gap-3">
-                      {getStatusIcon(cast.status)}
-                      <div>
-                        <p className="font-medium text-foreground line-clamp-1">{cast.marketClaim || 'Market position'}</p>
-                        <div className="flex items-center gap-2 mt-1">
-                          {getPositionBadge(cast.position)}
-                          <span className="text-sm text-muted-foreground">
-                            {cast.amount} CAST @ {cast.odds || 2.0}x
-                          </span>
-                        </div>
-                      </div>
-                    </div>
-                    <div className="text-right">
-                      <div className={`font-semibold ${
-                        cast.status === 'won' ? 'text-green-500' : 
-                        cast.status === 'lost' ? 'text-red-500' : 'text-yellow-500'
-                      }`}>
-                        {cast.status === 'won' && cast.actualWinning ? 
-                          `+${cast.actualWinning.toFixed(3)} CAST` :
-                          cast.status === 'lost' ? 
-                            `-${cast.amount.toFixed(3)} CAST` :
-                            `${(cast.potentialWinning || cast.potentialReturn || 0).toFixed(3)} CAST`
-                        }
-                      </div>
-                      <div className="text-xs text-muted-foreground">
-                        {formatTimeAgo(cast.placedAt)}
-                      </div>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </CardContent>
-          </Card>
         </TabsContent>
 
         <TabsContent value="active" className="space-y-4">

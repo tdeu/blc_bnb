@@ -3,15 +3,13 @@ import { pendingMarketsService } from './pendingMarketsService';
 import { approvedMarketsService } from './approvedMarketsService';
 import { contractService } from './contractService';
 
-// Admin wallet addresses - Whitelisted EVM addresses (for MetaMask compatibility)
+// Admin wallet address - Single admin address (MetaMask EVM address)
 export const ADMIN_ADDRESSES = [
-  '0x17b40492e3d7a2a2ba2fe0c09322cf9e5563cb0b', // Primary Admin (New secure address)
-  '0xfd76d4c18d5a10f558d057743bfb0218130157f4', // Super Admin
-  '0xC8130178a046eD25b4b248eE511F3846717b2b06', // Admin #3
+  '0x17b40492e3d7a2a2ba2fe0c09322cf9e5563cb0b', // Primary Admin
 ];
 
-// Super admin address (primary admin with full privileges) - EVM format
-export const SUPER_ADMIN_ADDRESS = '0xfd76d4c18d5a10f558d057743bfb0218130157f4';
+// Primary admin address (full privileges) - EVM format
+export const SUPER_ADMIN_ADDRESS = '0x17b40492e3d7a2a2ba2fe0c09322cf9e5563cb0b';
 
 export interface AdminStats {
   totalMarkets: number;

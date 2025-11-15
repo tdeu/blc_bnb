@@ -244,6 +244,7 @@ class AIResolutionScheduler {
 
   /**
    * Save AI resolution to database
+   * NOTE: This should be called AFTER blockchain resolution succeeds
    */
   private async saveResolutionToDatabase(marketId: string, resolution: any, source: string, geminiUsed: string) {
     try {
@@ -252,7 +253,7 @@ class AIResolutionScheduler {
       const { error } = await supabase
         .from('approved_markets')
         .update({
-          status: 'resolved',
+          status: 'pending_payout', // Changed from 'resolved' - waiting for blockchain confirmation
           resolution_data: {
             final_outcome: resolution.outcome,
             outcome: resolution.outcome,
@@ -271,7 +272,7 @@ class AIResolutionScheduler {
         throw error;
       }
 
-      console.log('✅ Resolution saved to database');
+      console.log('✅ Resolution saved to database (pending blockchain)');
     } catch (error) {
       console.error('Error in saveResolutionToDatabase:', error);
       throw error;
@@ -347,9 +348,37 @@ class AIResolutionScheduler {
       console.log(`   Transaction: ${result.transactionId || 'N/A'}`);
       console.log(`   Users can now claim winnings via redeem()`);
 
+      // NOW mark as fully resolved in database
+      await this.markMarketAsResolved(marketId);
+
     } catch (error) {
       console.error('Error triggering payout:', error);
       throw error;
+    }
+  }
+
+  /**
+   * Mark market as fully resolved after blockchain confirmation
+   */
+  private async markMarketAsResolved(marketId: string) {
+    try {
+      if (!supabase) return;
+
+      const { error } = await supabase
+        .from('approved_markets')
+        .update({
+          status: 'resolved', // NOW we can safely mark as resolved
+          resolved_at: new Date().toISOString()
+        })
+        .eq('id', marketId);
+
+      if (error) {
+        console.error('Error marking market as resolved:', error);
+      } else {
+        console.log('✅ Market marked as resolved in database');
+      }
+    } catch (error) {
+      console.error('Error in markMarketAsResolved:', error);
     }
   }
 

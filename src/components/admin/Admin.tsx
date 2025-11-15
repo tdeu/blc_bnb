@@ -7,6 +7,8 @@ import AdminOverview from './AdminDashboard';
 import MarketApproval from './MarketApproval';
 import ResolutionManager from './ResolutionManager';
 import UnifiedTreasuryDashboard from './UnifiedTreasuryDashboard';
+import UsersDashboard from './UsersDashboard';
+import ReportsDashboard from './ReportsDashboard';
 import { adminService } from '../../utils/adminService';
 import { useUser} from '../../contexts/UserContext';
 import { toast } from 'sonner';
@@ -150,46 +152,30 @@ const Admin: React.FC<AdminProps> = ({
       
       case 'markets':
         return (
-          <MarketApproval
-            userProfile={{
-              walletAddress: walletConnection.address,
-              displayName: profile?.displayName
-            }}
-          />
-        );
-
-      case 'resolution':
-        return (
-          <ResolutionManager
-            userProfile={{
-              walletAddress: walletConnection.address,
-              displayName: profile?.displayName
-            }}
-          />
+          <div className="space-y-6">
+            <MarketApproval
+              userProfile={{
+                walletAddress: walletConnection.address,
+                displayName: profile?.displayName
+              }}
+            />
+            <ResolutionManager
+              userProfile={{
+                walletAddress: walletConnection.address,
+                displayName: profile?.displayName
+              }}
+            />
+          </div>
         );
 
       case 'treasury':
         return <UnifiedTreasuryDashboard isAdmin={true} />;
 
-      case 'tokens':
-        return (
-          <Card>
-            <CardContent className="p-8 text-center">
-              <h3 className="text-lg font-semibold mb-2">Token Management</h3>
-              <p className="text-gray-600 dark:text-gray-400">CAST token minting and management tools coming soon...</p>
-            </CardContent>
-          </Card>
-        );
-
       case 'users':
-        return (
-          <Card>
-            <CardContent className="p-8 text-center">
-              <h3 className="text-lg font-semibold mb-2">User Management</h3>
-              <p className="text-gray-600 dark:text-gray-400">Coming soon...</p>
-            </CardContent>
-          </Card>
-        );
+        return <UsersDashboard />;
+
+      case 'reports':
+        return <ReportsDashboard />;
 
       default:
         return <AdminOverview userProfile={{ walletAddress: walletConnection.address }} />;

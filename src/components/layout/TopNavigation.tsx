@@ -222,10 +222,6 @@ export default function TopNavigation({ currentTab, onTabChange, isDarkMode, onT
                     </div>
                   </div>
                   <DropdownMenuSeparator />
-                  <DropdownMenuItem onClick={() => handleNavClick('settings?tab=preferences')}>
-                    <User className="h-4 w-4 mr-2" />
-                    Profile
-                  </DropdownMenuItem>
                   <DropdownMenuItem onClick={() => handleNavClick('portfolio')}>
                     <Wallet className="h-4 w-4 mr-2" />
                     Portfolio
@@ -234,12 +230,8 @@ export default function TopNavigation({ currentTab, onTabChange, isDarkMode, onT
                     <TrendingUp className="h-4 w-4 mr-2" />
                     My Markets
                   </DropdownMenuItem>
-                  <DropdownMenuItem onClick={() => handleNavClick('settings?tab=history')}>
-                    <Bell className="h-4 w-4 mr-2" />
-                    History
-                  </DropdownMenuItem>
                   <DropdownMenuSeparator />
-                  <DropdownMenuItem onClick={() => handleNavClick('settings?tab=preferences')}>
+                  <DropdownMenuItem onClick={() => handleNavClick('settings')}>
                     <Settings className="h-4 w-4 mr-2" />
                     Settings
                   </DropdownMenuItem>
@@ -335,15 +327,15 @@ export default function TopNavigation({ currentTab, onTabChange, isDarkMode, onT
                     })}
                   </div>
 
-                  {/* Account Settings (Mobile) */}
+                  {/* Portfolio & Settings (Mobile) */}
                   <div className="mt-4">
                     <Button
-                      variant={currentTab === 'profile' ? "default" : "ghost"}
-                      onClick={() => handleNavClick('settings?tab=preferences')}
+                      variant={currentTab === 'portfolio' ? "default" : "ghost"}
+                      onClick={() => handleNavClick('portfolio')}
                       className="w-full justify-start gap-3 h-12"
                     >
-                      <User className="h-5 w-5" />
-                      <span className="font-medium">Profile</span>
+                      <Wallet className="h-5 w-5" />
+                      <span className="font-medium">Portfolio</span>
                     </Button>
                     <Button
                       variant={currentTab === 'settings' ? "default" : "ghost"}
@@ -351,7 +343,7 @@ export default function TopNavigation({ currentTab, onTabChange, isDarkMode, onT
                       className="w-full justify-start gap-3 h-12"
                     >
                       <Settings className="h-5 w-5" />
-                      <span className="font-medium">Account Settings</span>
+                      <span className="font-medium">Settings</span>
                     </Button>
                   </div>
 

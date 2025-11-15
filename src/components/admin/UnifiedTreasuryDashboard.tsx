@@ -5,6 +5,7 @@ import { Badge } from '../ui/badge';
 import { Separator } from '../ui/separator';
 import { Alert, AlertDescription } from '../ui/alert';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '../ui/tabs';
+import { Input } from '../ui/input';
 import {
   Wallet,
   TrendingUp,
@@ -20,10 +21,12 @@ import {
   Zap,
   ShoppingCart,
   Scale,
-  Eye
+  Eye,
+  Send
 } from 'lucide-react';
 import { treasuryService as castTreasuryService, TreasuryStats, CastPurchase } from '../../services/treasuryService';
 import { treasuryService as protocolTreasuryService, TreasuryBalance, FeeCollection } from '../../utils/treasuryService';
+import { supabase } from '../../utils/supabase';
 import { toast } from 'sonner';
 
 interface UnifiedTreasuryDashboardProps {
@@ -31,7 +34,7 @@ interface UnifiedTreasuryDashboardProps {
 }
 
 export default function UnifiedTreasuryDashboard({ isAdmin }: UnifiedTreasuryDashboardProps) {
-  // CAST Token Treasury (BuyCAST Revenue)
+  // CAST Token Treasury (Token Sales Revenue)
   const [castStats, setCastStats] = useState<TreasuryStats | null>(null);
   const [castPurchases, setCastPurchases] = useState<CastPurchase[]>([]);
 
@@ -48,6 +51,8 @@ export default function UnifiedTreasuryDashboard({ isAdmin }: UnifiedTreasuryDas
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState('overview');
+  const [withdrawing, setWithdrawing] = useState(false);
+  const [withdrawAmount, setWithdrawAmount] = useState('');
 
   useEffect(() => {
     if (isAdmin) {
@@ -83,6 +88,25 @@ export default function UnifiedTreasuryDashboard({ isAdmin }: UnifiedTreasuryDas
       setFeeHistory(historyData);
       setProtocolAnalytics(analyticsData);
 
+      // Calculate total transactions from all sources
+      if (supabase) {
+        const [
+          { count: betsCount },
+          { count: marketsCount },
+          { count: purchasesCount },
+          { count: resolutionsCount }
+        ] = await Promise.all([
+          supabase.from('bets').select('*', { count: 'exact', head: true }),
+          supabase.from('approved_markets').select('*', { count: 'exact', head: true }),
+          supabase.from('cast_purchases').select('*', { count: 'exact', head: true }),
+          supabase.from('approved_markets').select('*', { count: 'exact', head: true }).eq('status', 'resolved')
+        ]);
+
+        const total = (betsCount || 0) + (marketsCount || 0) + (purchasesCount || 0) + (resolutionsCount || 0);
+        setTotalTransactions(total);
+        setTotalMarkets(marketsCount || 0);
+      }
+
     } catch (err: any) {
       console.error('Failed to load treasury data:', err);
       setError(err.message || 'Failed to load treasury data');
@@ -95,6 +119,64 @@ export default function UnifiedTreasuryDashboard({ isAdmin }: UnifiedTreasuryDas
   const handleRefresh = () => {
     loadAllTreasuryData();
     toast.success('Treasury data refreshed!');
+  };
+
+  const handleWithdrawBNB = async () => {
+    if (!withdrawAmount || parseFloat(withdrawAmount) <= 0) {
+      toast.error('Please enter a valid withdrawal amount');
+      return;
+    }
+
+    setWithdrawing(true);
+
+    try {
+      const { getAdminSigner, getAdminAddress } = await import('../../utils/adminSigner');
+      const adminSigner = await getAdminSigner();
+      const adminAddress = await getAdminAddress();
+
+      const ethers = await import('ethers');
+
+      // Treasury contract address and ABI
+      const TREASURY_ADDRESS = '0x54644FD3576720d16ff48Ea7E0545cb1D772D876';
+      const TREASURY_ABI = [
+        "function withdrawNative(uint256 amount, address payable to) external",
+        "function getNativeBalance() external view returns (uint256)"
+      ];
+
+      const treasuryContract = new ethers.Contract(TREASURY_ADDRESS, TREASURY_ABI, adminSigner);
+
+      // Convert amount to wei
+      const amountWei = ethers.parseEther(withdrawAmount);
+
+      // Check balance
+      const balance = await treasuryContract.getNativeBalance();
+      if (balance < amountWei) {
+        toast.error(`Insufficient balance. Available: ${ethers.formatEther(balance)} BNB`);
+        return;
+      }
+
+      toast.info('Withdrawing BNB from Treasury...');
+
+      // Call withdrawNative
+      const tx = await treasuryContract.withdrawNative(amountWei, adminAddress);
+
+      toast.info('Waiting for confirmation...');
+      await tx.wait();
+
+      toast.success(`Successfully withdrew ${withdrawAmount} BNB to admin wallet!`);
+      setWithdrawAmount('');
+
+      // Reload data
+      setTimeout(() => {
+        loadAllTreasuryData();
+      }, 2000);
+
+    } catch (error: any) {
+      console.error('Withdrawal error:', error);
+      toast.error(`Withdrawal failed: ${error.message || 'Unknown error'}`);
+    } finally {
+      setWithdrawing(false);
+    }
   };
 
   if (!isAdmin) {
@@ -118,11 +200,14 @@ export default function UnifiedTreasuryDashboard({ isAdmin }: UnifiedTreasuryDas
     );
   }
 
+  // State for total transactions and markets count
+  const [totalTransactions, setTotalTransactions] = useState(0);
+  const [totalMarkets, setTotalMarkets] = useState(0);
+
   // Calculate combined metrics
   const totalBnbRevenue = parseFloat(castStats?.bnbRevenue || '0');
   const totalCastFees = parseFloat(protocolAnalytics.totalValue);
   const totalRevenue = totalBnbRevenue + totalCastFees;
-  const totalTransactions = (castStats?.totalPurchases || 0) + feeHistory.length;
 
   return (
     <div className="space-y-6">
@@ -134,7 +219,7 @@ export default function UnifiedTreasuryDashboard({ isAdmin }: UnifiedTreasuryDas
             Unified Treasury Dashboard
           </h2>
           <p className="text-muted-foreground mt-1">
-            Complete overview of CAST token distribution, BuyCAST revenue, and protocol fees
+            Complete overview of CAST token distribution, token sales revenue, and protocol fees
           </p>
         </div>
         <Button
@@ -155,18 +240,26 @@ export default function UnifiedTreasuryDashboard({ isAdmin }: UnifiedTreasuryDas
       )}
 
       {/* Top-Level Metrics */}
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
         <Card>
           <CardContent className="pt-6">
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-sm font-medium text-muted-foreground">Total CAST Supply</p>
                 <p className="text-2xl font-bold text-blue-600">
-                  {castStats ? parseFloat(castStats.totalSupply).toLocaleString(undefined, { maximumFractionDigits: 0 }) : '0'}
+                  {castStats ? `${(parseFloat(castStats.totalSupply) / 1000000).toFixed(1)}M / ${(parseFloat(castStats.maxSupply) / 1000000).toFixed(0)}M` : '0 / 100M'}
                 </p>
                 <p className="text-xs text-muted-foreground mt-1">
-                  of {castStats ? parseFloat(castStats.maxSupply).toLocaleString(undefined, { maximumFractionDigits: 0 }) : '100M'} max
+                  {castStats ? `${castStats.supplyUtilization.toFixed(1)}% of max supply` : 'Current / Maximum'}
                 </p>
+                <a
+                  href="https://testnet.bscscan.com/token/0x8B84B21AC2EB9C37EfaD196d99088Df823567e81"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-xs text-blue-600 hover:text-blue-800 underline mt-1 inline-block"
+                >
+                  View on BscScan →
+                </a>
               </div>
               <div className="w-12 h-12 rounded-full bg-blue-500 flex items-center justify-center">
                 <Coins className="h-6 w-6 text-white" />
@@ -179,13 +272,21 @@ export default function UnifiedTreasuryDashboard({ isAdmin }: UnifiedTreasuryDas
           <CardContent className="pt-6">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm font-medium text-muted-foreground">BNB Revenue</p>
+                <p className="text-sm font-medium text-muted-foreground">Token Sales Revenue</p>
                 <p className="text-2xl font-bold text-green-600">
                   {totalBnbRevenue.toFixed(4)} BNB
                 </p>
                 <p className="text-xs text-muted-foreground mt-1">
-                  From CAST purchases
+                  BNB collected from users buying CAST
                 </p>
+                <a
+                  href="https://testnet.bscscan.com/address/0x54644FD3576720d16ff48Ea7E0545cb1D772D876"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-xs text-green-600 hover:text-green-800 underline mt-1 inline-block"
+                >
+                  Treasury Contract →
+                </a>
               </div>
               <div className="w-12 h-12 rounded-full bg-green-500 flex items-center justify-center">
                 <DollarSign className="h-6 w-6 text-white" />
@@ -222,11 +323,30 @@ export default function UnifiedTreasuryDashboard({ isAdmin }: UnifiedTreasuryDas
                   {totalTransactions}
                 </p>
                 <p className="text-xs text-muted-foreground mt-1">
-                  Purchases + Fees
+                  Bets + Markets + Sales + Resolutions
                 </p>
               </div>
               <div className="w-12 h-12 rounded-full bg-orange-500 flex items-center justify-center">
                 <Activity className="h-6 w-6 text-white" />
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardContent className="pt-6">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm font-medium text-muted-foreground">Total Markets</p>
+                <p className="text-2xl font-bold text-indigo-600">
+                  {totalMarkets}
+                </p>
+                <p className="text-xs text-muted-foreground mt-1">
+                  All prediction markets created
+                </p>
+              </div>
+              <div className="w-12 h-12 rounded-full bg-indigo-500 flex items-center justify-center">
+                <PieChart className="h-6 w-6 text-white" />
               </div>
             </div>
           </CardContent>
@@ -238,7 +358,7 @@ export default function UnifiedTreasuryDashboard({ isAdmin }: UnifiedTreasuryDas
         <TabsList className="grid w-full grid-cols-4">
           <TabsTrigger value="overview">Overview</TabsTrigger>
           <TabsTrigger value="cast-token">CAST Token</TabsTrigger>
-          <TabsTrigger value="buyCast">BuyCAST Revenue</TabsTrigger>
+          <TabsTrigger value="buyCast">Token Sales</TabsTrigger>
           <TabsTrigger value="protocol-fees">Protocol Fees</TabsTrigger>
         </TabsList>
 
@@ -286,7 +406,7 @@ export default function UnifiedTreasuryDashboard({ isAdmin }: UnifiedTreasuryDas
                     <div className="flex justify-between text-sm">
                       <div className="flex items-center gap-2">
                         <ShoppingCart className="h-4 w-4 text-green-500" />
-                        <span className="text-muted-foreground">BuyCAST Revenue</span>
+                        <span className="text-muted-foreground">Token Sales Revenue</span>
                       </div>
                       <span className="font-medium text-green-600">{totalBnbRevenue.toFixed(4)} BNB</span>
                     </div>
@@ -394,16 +514,16 @@ export default function UnifiedTreasuryDashboard({ isAdmin }: UnifiedTreasuryDas
           </Card>
         </TabsContent>
 
-        {/* BuyCAST Revenue Tab */}
+        {/* Token Sales Tab */}
         <TabsContent value="buyCast" className="space-y-4">
           <Card>
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
                 <ShoppingCart className="h-5 w-5" />
-                BuyCAST Revenue
+                Token Sales Revenue
               </CardTitle>
               <CardDescription>
-                BNB revenue from CAST token purchases
+                BNB revenue from CAST token purchases via BuyCAST contract
               </CardDescription>
             </CardHeader>
             <CardContent>
@@ -546,6 +666,58 @@ export default function UnifiedTreasuryDashboard({ isAdmin }: UnifiedTreasuryDas
         </TabsContent>
       </Tabs>
 
+      {/* Treasury Withdrawal */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <Send className="h-5 w-5 text-green-500" />
+            Withdraw Funds
+          </CardTitle>
+          <CardDescription>
+            Withdraw BNB from Treasury to admin wallet
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <div className="space-y-4">
+            <Alert>
+              <AlertTriangle className="h-4 w-4" />
+              <AlertDescription>
+                <strong>Admin only:</strong> This action will withdraw BNB from the Treasury contract to your connected admin wallet.
+                Available balance: <strong>{totalBnbRevenue.toFixed(4)} BNB</strong>
+              </AlertDescription>
+            </Alert>
+
+            <div className="flex gap-2">
+              <Input
+                type="number"
+                step="0.0001"
+                min="0"
+                max={totalBnbRevenue}
+                placeholder="Amount in BNB (e.g., 0.1)"
+                value={withdrawAmount}
+                onChange={(e) => setWithdrawAmount(e.target.value)}
+                disabled={withdrawing}
+                className="flex-1"
+              />
+              <Button
+                onClick={handleWithdrawBNB}
+                disabled={withdrawing || !withdrawAmount || parseFloat(withdrawAmount) <= 0 || parseFloat(withdrawAmount) > totalBnbRevenue}
+                className="gap-2"
+              >
+                <Send className="h-4 w-4" />
+                {withdrawing ? 'Withdrawing...' : 'Withdraw'}
+              </Button>
+            </div>
+
+            {withdrawAmount && parseFloat(withdrawAmount) > 0 && parseFloat(withdrawAmount) <= totalBnbRevenue && (
+              <p className="text-sm text-muted-foreground">
+                You will receive <strong>{withdrawAmount} BNB</strong> (~${(parseFloat(withdrawAmount) * 600).toFixed(2)})
+              </p>
+            )}
+          </div>
+        </CardContent>
+      </Card>
+
       {/* Treasury Management Info */}
       <Card>
         <CardHeader>
@@ -559,7 +731,7 @@ export default function UnifiedTreasuryDashboard({ isAdmin }: UnifiedTreasuryDas
             <div>
               <h4 className="font-medium mb-2">Revenue Streams</h4>
               <ul className="space-y-1 text-muted-foreground">
-                <li>• <strong>BuyCAST</strong>: BNB revenue from CAST token purchases</li>
+                <li>• <strong>Token Sales</strong>: BNB revenue from CAST token purchases</li>
                 <li>• <strong>Protocol Fees</strong>: 2% CAST fees from market resolutions</li>
                 <li>• <strong>Treasury Contract</strong>: Holds both BNB and CAST</li>
               </ul>

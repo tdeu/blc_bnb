@@ -583,8 +583,8 @@ export class ResolutionService {
           throw new Error(`Failed to fetch market: ${error.message}`);
         }
 
-        if (market?.status !== 'open' && market?.status !== 'expired') {
-          throw new Error(`Market ${marketId} has status '${market?.status}' - can only resolve open/expired markets`);
+        if (market?.status !== 'open' && market?.status !== 'expired' && market?.status !== 'pending_payout') {
+          throw new Error(`Market ${marketId} has status '${market?.status}' - can only resolve open/expired/pending_payout markets`);
         }
 
         marketContractAddress = market?.contract_address;
