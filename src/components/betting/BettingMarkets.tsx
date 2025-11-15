@@ -46,6 +46,7 @@ export interface BettingMarket {
   region?: string;
   marketType: 'present' | 'future';
   confidenceLevel: 'high' | 'medium' | 'low';
+  contractAddress?: string; // Blockchain contract address for this market
   // Resolution system fields (simplified)
   resolution_data?: {
     outcome?: 'yes' | 'no';

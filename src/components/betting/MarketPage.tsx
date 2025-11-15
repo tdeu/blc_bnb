@@ -247,9 +247,11 @@ export default function MarketPage({ market, onPlaceBet, userBalance, onBack, wa
           ];
           const contract = new ethers.Contract(market.contractAddress, marketABI, provider);
 
-          // Query past events (last 1000 blocks)
+          // Query past events (last 10,000 blocks to ensure we get all bets)
           const filter = contract.filters.BetPlaced();
-          const events = await contract.queryFilter(filter, -1000);
+          const events = await contract.queryFilter(filter, -10000);
+
+          console.log(`📊 Found ${events.length} BetPlaced events from blockchain`);
 
           const blockchainBets = events.map((event: any) => ({
             id: event.transactionHash,
@@ -261,6 +263,7 @@ export default function MarketPage({ market, onPlaceBet, userBalance, onBack, wa
           }));
 
           console.log('📊 Loaded BSC blockchain bets:', blockchainBets);
+          console.log('📊 Bet wallet addresses:', blockchainBets.map(b => b.walletAddress));
           bets = blockchainBets;
         } catch (error) {
           console.error('Failed to load BSC bets, falling back to localStorage:', error);

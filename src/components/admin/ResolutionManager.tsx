@@ -80,6 +80,7 @@ const ResolutionManager: React.FC<ResolutionManagerProps> = ({ userProfile }) =>
         createdAt: new Date(market.created_at),
         status: (market.status as any) || 'active',
         imageUrl: market.image_url,
+        contractAddress: market.contract_address, // Map DB snake_case to camelCase
         resolution_data: market.resolution_data,
         yesOdds: market.yes_odds || 2.0,
         noOdds: market.no_odds || 2.0,
@@ -162,7 +163,7 @@ const ResolutionManager: React.FC<ResolutionManagerProps> = ({ userProfile }) =>
         market.id,
         market.claim,
         market.description,
-        (market as any).contract_address
+        market.contractAddress
       );
 
       toast.success('Market resolved successfully!');
