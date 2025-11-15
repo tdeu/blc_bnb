@@ -568,7 +568,7 @@ export default function BettingPortfolio({ userBalance, userBets: propUserBets }
           </TabsTrigger>
           <TabsTrigger value="history" className="gap-2">
             <BarChart3 className="h-4 w-4" />
-            Cast History
+            Cast History ({resolvedCasts.length})
           </TabsTrigger>
         </TabsList>
 

@@ -1333,7 +1333,7 @@ export default function MarketPage({ market, onPlaceBet, userBalance, onBack, wa
                   <CardHeader>
                     <CardTitle className={`flex items-center gap-2 ${hasWinnings ? 'text-green-700 dark:text-green-400' : 'text-red-700 dark:text-red-400'}`}>
                       {hasWinnings ? <CheckCircle2 className="h-5 w-5" /> : <AlertCircle className="h-5 w-5" />}
-                      {hasWinnings ? 'Claim Your Winnings' : 'Market Result'}
+                      {hasWinnings ? 'Your Winnings' : 'Market Result'}
                     </CardTitle>
                     <CardDescription className={hasWinnings ? 'text-green-600 dark:text-green-500' : 'text-red-600 dark:text-red-500'}>
                       Market resolved: <strong>{resolvedOutcome?.toUpperCase()}</strong>
@@ -1409,77 +1409,21 @@ export default function MarketPage({ market, onPlaceBet, userBalance, onBack, wa
                       </div>
                     </div>
 
-                    {/* Claim Button - Only show if user has winnings */}
+                    {/* Auto-payout notification */}
                     {hasWinnings && (
-                      <>
-                        <Button
-                          className="w-full gap-2 bg-green-600 hover:bg-green-700"
-                          size="lg"
-                          onClick={async () => {
-                            try {
-                              if (!market.contractAddress) {
-                                toast.error('Market contract address not found');
-                                return;
-                              }
-
-                              // Import ethers and contract service
-                              const ethers = await import('ethers');
-
-                              // Connect user's wallet
-                              const connection = walletService.getConnection();
-                              if (!connection?.signer) {
-                                toast.error('Please connect your wallet first');
-                                return;
-                              }
-
-                              const MARKET_ABI = ["function redeem() external"];
-                              const marketContract = new ethers.Contract(market.contractAddress, MARKET_ABI, connection.signer);
-
-                              toast.loading('Claiming your winnings...');
-                              const tx = await marketContract.redeem();
-                              await tx.wait();
-
-                              toast.success(`${totalWinnings.toFixed(2)} CAST added to your wallet! 🎉`);
-                            } catch (error: any) {
-                              console.error('Failed to claim winnings:', error);
-
-                              // Check if error is "Not resolved" - market hasn't been resolved on blockchain yet
-                              if (error.message && error.message.includes('Not resolved')) {
-                                // Automatically resolve on blockchain, then claim
-                                try {
-                                  toast.loading('Processing your claim...');
-
-                                  // Step 1: Resolve market on blockchain
-                                  console.log('🔐 Market not resolved on blockchain yet, resolving now...');
-                                  await resolutionService.resolveMarketWithAI(market.id, resolvedOutcome, 80);
-
-                                  // Step 2: Wait a moment for transaction to be confirmed
-                                  await new Promise(resolve => setTimeout(resolve, 2000));
-
-                                  // Step 3: Now claim the winnings
-                                  toast.loading('Claiming your winnings...');
-                                  const tx = await marketContract.redeem();
-                                  await tx.wait();
-
-                                  toast.success(`${totalWinnings.toFixed(2)} CAST added to your wallet! 🎉`);
-                                } catch (resError: any) {
-                                  console.error('Failed to process claim:', resError);
-                                  toast.error(`Failed to claim winnings. Please try again.`);
-                                }
-                              } else {
-                                toast.error(`Failed to claim: ${error.message || 'Unknown error'}`);
-                              }
-                            }
-                          }}
-                        >
-                          <Target className="h-5 w-5" />
-                          Claim {totalWinnings.toFixed(2)} CAST
-                        </Button>
-
-                        <div className="text-xs text-center text-gray-500">
-                          Transaction fee: ~0.001 BNB
+                      <div className="bg-green-50 dark:bg-green-900/20 border border-green-300 dark:border-green-700 rounded-lg p-4">
+                        <div className="flex items-start gap-3">
+                          <CheckCircle2 className="h-5 w-5 text-green-600 dark:text-green-400 mt-0.5 flex-shrink-0" />
+                          <div className="space-y-1">
+                            <p className="text-sm font-medium text-green-800 dark:text-green-300">
+                              Winnings Automatically Distributed
+                            </p>
+                            <p className="text-xs text-green-700 dark:text-green-400">
+                              Your {totalWinnings.toFixed(2)} CAST has been automatically sent to your wallet upon market resolution. Check your balance!
+                            </p>
+                          </div>
                         </div>
-                      </>
+                      </div>
                     )}
                   </CardContent>
                 </Card>

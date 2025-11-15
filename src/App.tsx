@@ -1390,7 +1390,7 @@ export default function App() {
           />
         ) : null;
       case 'portfolio':
-        return <BettingPortfolio userBets={userBets} userBalance={userProfile?.balance || 0} />;
+        return <BettingPortfolio userBets={userBets} userBalance={castBalance} />;
       case 'verify':
         return (
           <div className="space-y-6 max-w-4xl mx-auto">
