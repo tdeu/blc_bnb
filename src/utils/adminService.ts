@@ -7,7 +7,6 @@ import { contractService } from './contractService';
 export const ADMIN_ADDRESSES = [
   '0x17b40492e3d7a2a2ba2fe0c09322cf9e5563cb0b', // Primary Admin (New secure address)
   '0xfd76d4c18d5a10f558d057743bfb0218130157f4', // Super Admin
-  '0x947d2175ad83ae42c59cfef2990e6cccf2b27213', // Admin #2
   '0xC8130178a046eD25b4b248eE511F3846717b2b06', // Admin #3
 ];
 
