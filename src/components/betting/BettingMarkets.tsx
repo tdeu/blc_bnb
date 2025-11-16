@@ -176,10 +176,15 @@ export default function BettingMarkets({ onPlaceBet, userBalance, onMarketSelect
     const now = new Date();
     const isExpired = market.expiresAt && market.expiresAt <= now;
     const isActive = market.status === 'active' && !isExpired && market.marketType === 'future';
+    const isDisputable = market.status === 'evidence_collection';
 
     let matchesMarketType = true;
     if (marketTypeFilter === 'active') {
       matchesMarketType = isActive;
+    } else if (marketTypeFilter === 'expired') {
+      matchesMarketType = isExpired && !isDisputable; // Expired but not in evidence collection
+    } else if (marketTypeFilter === 'disputable') {
+      matchesMarketType = isDisputable;
     } else if (marketTypeFilter === 'pending') {
       matchesMarketType = market.status === 'pending_resolution';
     } else if (marketTypeFilter === 'resolved') {
@@ -417,12 +422,14 @@ export default function BettingMarkets({ onPlaceBet, userBalance, onMarketSelect
             </Select>
 
             <Select value={marketTypeFilter} onValueChange={setMarketTypeFilter}>
-              <SelectTrigger className="w-36 h-11 bg-background/50 border-primary/30 text-sm">
+              <SelectTrigger className="w-40 h-11 bg-background/50 border-primary/30 text-sm">
                 <SelectValue placeholder="All Types" />
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="all">All Types</SelectItem>
                 <SelectItem value="active">Active Markets</SelectItem>
+                <SelectItem value="expired">Expired Markets</SelectItem>
+                <SelectItem value="disputable">Disputable Markets</SelectItem>
               </SelectContent>
             </Select>
           </div>
@@ -434,6 +441,8 @@ export default function BettingMarkets({ onPlaceBet, userBalance, onMarketSelect
               <span className="text-sm font-medium text-muted-foreground">
                 {sortedMarkets.length} {
                   marketTypeFilter === 'active' ? 'Active' :
+                  marketTypeFilter === 'expired' ? 'Expired' :
+                  marketTypeFilter === 'disputable' ? 'Disputable' :
                   'Total'
                 } Markets
               </span>

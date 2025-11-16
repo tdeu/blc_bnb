@@ -57,6 +57,13 @@ contract PredictionMarket {
     );
     event EvidenceCollectionStarted(uint256 endTime);
     event EvidenceCollectionEnded(uint256 totalEvidences);
+    event SharesPurchased(
+        address indexed buyer,
+        bool isYes,
+        uint256 shares,
+        uint256 cost,
+        uint256 timestamp
+    );
     struct MarketInfo {
         bytes32 id;
         string question;
@@ -217,6 +224,8 @@ contract PredictionMarket {
             hasYesPosition[msg.sender] = true;
         }
 
+        emit SharesPurchased(msg.sender, true, shares, cost, block.timestamp);
+
         // NFT minting is now user-initiated via mintNFTForPosition()
     }
 
@@ -236,6 +245,8 @@ contract PredictionMarket {
             noParticipants.push(msg.sender);
             hasNoPosition[msg.sender] = true;
         }
+
+        emit SharesPurchased(msg.sender, false, shares, cost, block.timestamp);
 
         // NFT minting is now user-initiated via mintNFTForPosition()
     }
@@ -266,6 +277,8 @@ contract PredictionMarket {
                 yesParticipants.push(msg.sender);
                 hasYesPosition[msg.sender] = true;
             }
+
+            emit SharesPurchased(msg.sender, true, shares, cost, block.timestamp);
         } else {
             uint256 cost = getPriceNo(shares);
             require(cost > 0, "Invalid cost");
@@ -285,6 +298,8 @@ contract PredictionMarket {
                 noParticipants.push(msg.sender);
                 hasNoPosition[msg.sender] = true;
             }
+
+            emit SharesPurchased(msg.sender, false, shares, cost, block.timestamp);
         }
 
         // NFT minting is now user-initiated via mintNFTForPosition()

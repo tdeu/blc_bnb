@@ -110,6 +110,11 @@ export default function CreateMarket({ onBack, onCreateMarket, marketContext = '
       return;
     }
 
+    if (!selectedImage) {
+      toast.error('Please upload a photo for your market');
+      return;
+    }
+
     if (formData.claim.length < MARKET_CREATION.MIN_CLAIM_LENGTH) {
       toast.error(`Market claim must be at least ${MARKET_CREATION.MIN_CLAIM_LENGTH} characters`);
       return;
@@ -251,7 +256,7 @@ export default function CreateMarket({ onBack, onCreateMarket, marketContext = '
           {/* Photo Upload */}
           <div className="space-y-2">
             <Label htmlFor="image-upload">
-              Upload Photo (Optional)
+              Upload Photo <span className="text-red-500">*</span>
             </Label>
             <div className="space-y-3">
               {imagePreview ? (

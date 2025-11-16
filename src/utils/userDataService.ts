@@ -212,6 +212,61 @@ class UserDataService {
   }
 
   /**
+   * Update bet with actual transaction data (called after blockchain confirmation)
+   */
+  updateBetTransaction(
+    walletAddress: string,
+    betId: string,
+    transactionHash: string,
+    shares: string,
+    cost: string
+  ): void {
+    try {
+      // Update user's bets
+      const userStorageKey = `user_bets_${walletAddress.toLowerCase()}`;
+      const userBets = JSON.parse(localStorage.getItem(userStorageKey) || '[]');
+      const updatedUserBets = userBets.map((bet: any) => {
+        if (bet.id === betId) {
+          return {
+            ...bet,
+            transactionHash,
+            shares,
+            cost,
+            potentialReturn: parseFloat(shares) // shares = potential return if correct
+          };
+        }
+        return bet;
+      });
+      localStorage.setItem(userStorageKey, JSON.stringify(updatedUserBets));
+
+      // Update market-specific bets (for activity timeline)
+      // betId format is `${marketId}-${Date.now()}`, extract marketId
+      const betIdParts = betId.split('-');
+      const reconstructedMarketId = betIdParts.slice(0, -1).join('-'); // Remove timestamp part
+
+      const marketBetsKey = `market_bets_${reconstructedMarketId}`;
+      const marketBets = JSON.parse(localStorage.getItem(marketBetsKey) || '[]');
+      const updatedMarketBets = marketBets.map((bet: any) => {
+        if (bet.id === betId) {
+          return {
+            ...bet,
+            transactionHash,
+            shares,
+            cost,
+            potentialReturn: parseFloat(shares)
+          };
+        }
+        return bet;
+      });
+      localStorage.setItem(marketBetsKey, JSON.stringify(updatedMarketBets));
+
+      console.log(`✅ Bet ${betId} updated with transaction data: ${shares} shares @ ${cost} CAST (TX: ${transactionHash})`);
+    } catch (error) {
+      console.error('Error updating bet transaction:', error);
+    }
+  }
+
+  /**
    * Record when user creates a market (called from market creation flow)
    */
   recordMarketCreation(

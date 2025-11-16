@@ -485,13 +485,20 @@ async function retryWithBackoff<T>(
 }
 
 // Helper function for placing bets without needing a ContractService instance
+export interface PlaceBetResult {
+  transactionHash: string;
+  shares: string;
+  cost: string;
+  maxCost: string;
+}
+
 export async function placeBet(
   marketAddress: string,
   isYes: boolean,
   shares: string,
   signer: ethers.Signer,
   slippageTolerance: number = 5
-): Promise<string> {
+): Promise<PlaceBetResult> {
   const marketContract = new ethers.Contract(
     marketAddress,
     PREDICTION_MARKET_ABI,
@@ -536,5 +543,10 @@ export async function placeBet(
   await retryWithBackoff(() => betTx.wait());
   console.log(`✅ Bet placed successfully!`);
 
-  return betTx.hash;
+  return {
+    transactionHash: betTx.hash,
+    shares: ethers.formatEther(shares),
+    cost: ethers.formatEther(cost),
+    maxCost: ethers.formatEther(maxCost)
+  };
 }

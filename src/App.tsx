@@ -1023,7 +1023,7 @@ export default function App() {
             // - Correct 3-parameter function signature (isYes, shares, maxCost)
             // - Token approval
             // - Slippage calculation
-            const transactionHash = await placeBet(
+            const betResult = await placeBet(
               contractAddress,
               position === 'yes',
               betAmount.toString(),
@@ -1031,16 +1031,26 @@ export default function App() {
               5 // 5% slippage tolerance
             );
 
-            console.log(`✅ Transaction confirmed: ${transactionHash}`);
+            console.log(`✅ Transaction confirmed: ${betResult.transactionHash}`);
+            console.log(`📊 Shares: ${betResult.shares}, Cost: ${betResult.cost} CAST`);
 
-            const transactionId = transactionHash;
+            const transactionId = betResult.transactionHash;
 
-            // Update bet record with blockchain transaction ID
+            // Update bet record with blockchain transaction ID and actual shares/cost
             setUserBets(prev => prev.map(bet =>
               bet.id === newBet.id
                 ? { ...bet, blockchainTxId: transactionId }
                 : bet
             ));
+
+            // Update the localStorage bet with actual transaction data
+            userDataService.updateBetTransaction(
+              walletConnection.address,
+              newBet.id,
+              transactionId,
+              betResult.shares,
+              betResult.cost
+            );
 
             // Show success toast with BSCScan link
             const displayPosition = position === 'yes' ? 'TRUE' : 'FALSE';

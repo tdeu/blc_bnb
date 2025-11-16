@@ -241,32 +241,33 @@ export default function MarketPage({ market, onPlaceBet, userBalance, onBack, wa
       let bets: any[] = [];
       if (market.contractAddress) {
         try {
-          // For BSC, we can query bet events from the contract
+          // For BSC, we can query SharesPurchased events from the contract
           const { ethers } = await import('ethers');
           const provider = new ethers.JsonRpcProvider('https://data-seed-prebsc-1-s1.binance.org:8545/');
 
           const marketABI = [
-            'event BetPlaced(address indexed user, bool position, uint256 amount, uint256 timestamp)'
+            'event SharesPurchased(address indexed buyer, bool isYes, uint256 shares, uint256 cost, uint256 timestamp)'
           ];
           const contract = new ethers.Contract(market.contractAddress, marketABI, provider);
 
           // Query past events (last 10,000 blocks to ensure we get all bets)
-          const filter = contract.filters.BetPlaced();
+          const filter = contract.filters.SharesPurchased();
           const events = await contract.queryFilter(filter, -10000);
 
-          console.log(`📊 Found ${events.length} BetPlaced events from blockchain`);
+          console.log(`📊 Found ${events.length} SharesPurchased events from blockchain`);
 
           const blockchainBets = events.map((event: any) => ({
             id: event.transactionHash,
-            walletAddress: event.args.user,
-            position: event.args.position ? 'yes' : 'no',
-            amount: parseFloat(ethers.formatEther(event.args.amount)),
+            walletAddress: event.args.buyer,
+            position: event.args.isYes ? 'yes' : 'no',
+            shares: parseFloat(ethers.formatEther(event.args.shares)),
+            cost: parseFloat(ethers.formatEther(event.args.cost)),
             placedAt: new Date(Number(event.args.timestamp) * 1000),
             transactionHash: event.transactionHash
           }));
 
           console.log('📊 Loaded BSC blockchain bets:', blockchainBets);
-          console.log('📊 Bet wallet addresses:', blockchainBets.map(b => b.walletAddress));
+          console.log('📊 Bet wallet addresses:', blockchainBets.map((b: any) => b.walletAddress));
           bets = blockchainBets;
         } catch (error) {
           console.error('Failed to load BSC bets, falling back to localStorage:', error);
@@ -1534,11 +1535,18 @@ export default function MarketPage({ market, onPlaceBet, userBalance, onBack, wa
                         {bet.position === 'yes' ? 'YES' : 'NO'} Prediction Placed
                       </span>
                       <Badge variant="outline" className="text-xs">
-                        {bet.amount} CAST
+                        {bet.shares && Number(bet.shares) > 0
+                          ? `${Number(bet.shares).toFixed(3)} shares`
+                          : `${bet.amount || 0} CAST`}
                       </Badge>
-                      {bet.odds && (
+                      {bet.cost && Number(bet.cost) > 0 && (
                         <Badge variant="secondary" className="text-xs">
-                          @ {bet.odds.toFixed(2)}x
+                          @ {Number(bet.cost).toFixed(3)} CAST
+                        </Badge>
+                      )}
+                      {bet.odds && !bet.cost && (
+                        <Badge variant="secondary" className="text-xs">
+                          @ {Number(bet.odds).toFixed(2)}x
                         </Badge>
                       )}
                     </div>
@@ -1547,14 +1555,27 @@ export default function MarketPage({ market, onPlaceBet, userBalance, onBack, wa
                       <span className="font-mono text-xs bg-muted px-1 rounded">
                         {bet.walletAddress ? `${bet.walletAddress.slice(0, 6)}...${bet.walletAddress.slice(-4)}` : 'Unknown'}
                       </span>
-                      {' '}• Potential return: {bet.potentialReturn ? bet.potentialReturn.toFixed(3) : (bet.amount * 2).toFixed(3)} CAST
+                      {bet.shares && Number(bet.shares) > 0 && (
+                        <> • Potential return: {Number(bet.shares).toFixed(3)} CAST (if correct)</>
+                      )}
+                      {(!bet.shares || Number(bet.shares) === 0) && bet.potentialReturn && (
+                        <> • Potential return: {Number(bet.potentialReturn).toFixed(3)} CAST</>
+                      )}
+                      {(!bet.shares || Number(bet.shares) === 0) && !bet.potentialReturn && bet.amount && (
+                        <> • Potential return: {(Number(bet.amount) * 2).toFixed(3)} CAST</>
+                      )}
                     </p>
                     <div className="flex items-center gap-4 text-xs text-muted-foreground">
                       <span>{new Date(bet.placedAt).toLocaleDateString()} at {new Date(bet.placedAt).toLocaleTimeString()}</span>
                       {bet.transactionHash && (
-                        <span className="font-mono">
+                        <a
+                          href={`https://testnet.bscscan.com/tx/${bet.transactionHash}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="font-mono text-blue-600 hover:text-blue-800 dark:text-blue-400 dark:hover:text-blue-300 underline"
+                        >
                           TX: {bet.transactionHash.slice(0, 8)}...{bet.transactionHash.slice(-6)}
-                        </span>
+                        </a>
                       )}
                       {bet.tokenId && (
                         <span>NFT #{bet.tokenId}</span>
