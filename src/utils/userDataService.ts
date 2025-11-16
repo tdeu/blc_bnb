@@ -2,6 +2,7 @@ import { supabase, ApprovedMarket } from './supabase';
 import { ContractService, MarketInfo, UserPosition } from './contractService';
 import { UserBet } from '../components/betting/BettingPortfolio';
 import { BettingMarket } from '../components/betting/BettingMarkets';
+import { predictionService } from '../services/predictionService';
 
 export interface UserCreatedMarket {
   id: string;
@@ -161,9 +162,10 @@ class UserDataService {
   }
 
   /**
-   * Record a new bet in local storage (called when user places a bet)
+   * Record a new bet in Supabase (and localStorage as fallback)
+   * Returns the prediction ID for transaction updates
    */
-  recordBet(
+  async recordBet(
     walletAddress: string,
     marketId: string,
     marketClaim: string,
@@ -174,10 +176,37 @@ class UserDataService {
     odds?: number,
     potentialReturn?: number,
     marketContractAddress?: string
-  ): void {
+  ): Promise<string> {
+    const betId = `${marketId}-${Date.now()}-${Math.random().toString(36).substring(7)}`;
+
+    try {
+      // 1. Save to Supabase first (primary storage)
+      const supabaseResult = await predictionService.savePrediction({
+        marketId,
+        userAddress: walletAddress,
+        position,
+        amount,
+        shares,
+        odds,
+        potentialReturn: potentialReturn || amount * 2.0,
+        transactionHash: 'pending', // Will be updated after blockchain confirmation
+        marketContractAddress
+      });
+
+      if (supabaseResult.success && supabaseResult.prediction) {
+        console.log('✅ Bet saved to Supabase:', supabaseResult.prediction.id);
+        return supabaseResult.prediction.id;
+      } else {
+        console.warn('⚠️ Supabase save failed, using localStorage fallback:', supabaseResult.error);
+      }
+    } catch (error) {
+      console.error('Error saving to Supabase:', error);
+    }
+
+    // 2. Fallback to localStorage if Supabase fails
     try {
       const bet: UserBettingHistory = {
-        id: `${marketId}-${Date.now()}`,
+        id: betId,
         marketId,
         marketClaim,
         position,
@@ -187,11 +216,11 @@ class UserDataService {
         placedAt: new Date(),
         status: 'active',
         marketStatus: 'active',
-        potentialReturn: potentialReturn || amount * 2.0, // Default to 2x if not provided
-        currentValue: potentialReturn || amount * 2.0, // Set current value to potential return for active bets
+        potentialReturn: potentialReturn || amount * 2.0,
+        currentValue: potentialReturn || amount * 2.0,
         walletAddress: walletAddress.toLowerCase(),
         odds: odds,
-        marketContractAddress: marketContractAddress // Store contract address for claiming
+        marketContractAddress: marketContractAddress
       };
 
       const storageKey = `user_bets_${walletAddress.toLowerCase()}`;
@@ -199,30 +228,51 @@ class UserDataService {
       existingBets.push(bet);
       localStorage.setItem(storageKey, JSON.stringify(existingBets));
 
-      // Also store in a global market-specific key for market activity timeline
       const marketBetsKey = `market_bets_${marketId}`;
       const existingMarketBets = JSON.parse(localStorage.getItem(marketBetsKey) || '[]');
       existingMarketBets.push(bet);
       localStorage.setItem(marketBetsKey, JSON.stringify(existingMarketBets));
 
-      console.log('✅ Bet recorded locally:', bet);
+      console.log('✅ Bet recorded in localStorage (fallback):', bet);
     } catch (error) {
-      console.error('Error recording bet:', error);
+      console.error('Error recording bet to localStorage:', error);
     }
+
+    return betId;
   }
 
   /**
    * Update bet with actual transaction data (called after blockchain confirmation)
    */
-  updateBetTransaction(
+  async updateBetTransaction(
     walletAddress: string,
     betId: string,
     transactionHash: string,
     shares: string,
     cost: string
-  ): void {
+  ): Promise<void> {
     try {
-      // Update user's bets
+      // 1. Update in Supabase first (primary storage)
+      const supabaseResult = await predictionService.updatePredictionTransaction(
+        betId,
+        transactionHash,
+        'confirmed',
+        shares,
+        cost
+      );
+
+      if (supabaseResult.success) {
+        console.log(`✅ Prediction ${betId} confirmed in Supabase (TX: ${transactionHash})`);
+        return; // Success, no need for localStorage fallback
+      } else {
+        console.warn('⚠️ Supabase update failed, updating localStorage:', supabaseResult.error);
+      }
+    } catch (error) {
+      console.error('Error updating Supabase:', error);
+    }
+
+    // 2. Fallback: Update localStorage if Supabase fails
+    try {
       const userStorageKey = `user_bets_${walletAddress.toLowerCase()}`;
       const userBets = JSON.parse(localStorage.getItem(userStorageKey) || '[]');
       const updatedUserBets = userBets.map((bet: any) => {
@@ -232,17 +282,16 @@ class UserDataService {
             transactionHash,
             shares,
             cost,
-            potentialReturn: parseFloat(shares) // shares = potential return if correct
+            potentialReturn: parseFloat(shares)
           };
         }
         return bet;
       });
       localStorage.setItem(userStorageKey, JSON.stringify(updatedUserBets));
 
-      // Update market-specific bets (for activity timeline)
-      // betId format is `${marketId}-${Date.now()}`, extract marketId
+      // Update market-specific bets
       const betIdParts = betId.split('-');
-      const reconstructedMarketId = betIdParts.slice(0, -1).join('-'); // Remove timestamp part
+      const reconstructedMarketId = betIdParts.slice(0, -2).join('-'); // Remove timestamp and random part
 
       const marketBetsKey = `market_bets_${reconstructedMarketId}`;
       const marketBets = JSON.parse(localStorage.getItem(marketBetsKey) || '[]');
@@ -260,9 +309,9 @@ class UserDataService {
       });
       localStorage.setItem(marketBetsKey, JSON.stringify(updatedMarketBets));
 
-      console.log(`✅ Bet ${betId} updated with transaction data: ${shares} shares @ ${cost} CAST (TX: ${transactionHash})`);
+      console.log(`✅ Bet ${betId} updated in localStorage (TX: ${transactionHash})`);
     } catch (error) {
-      console.error('Error updating bet transaction:', error);
+      console.error('Error updating bet transaction in localStorage:', error);
     }
   }
 

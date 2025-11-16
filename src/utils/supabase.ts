@@ -101,6 +101,22 @@ export interface MarketEvidence {
   created_at: string;
 }
 
+export interface MarketPrediction {
+  id: string;
+  market_id: string;
+  user_address: string;
+  position: 'yes' | 'no';
+  amount: number;
+  shares?: string;
+  odds?: number;
+  potential_return?: number;
+  transaction_hash?: string;
+  transaction_status: 'pending' | 'confirmed' | 'failed';
+  market_contract_address?: string;
+  created_at: string;
+  updated_at: string;
+}
+
 // Legacy Hedera interfaces removed - now using BNB Chain + IPFS
 // HCSTopic and HTSToken are no longer used
 

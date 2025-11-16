@@ -58,7 +58,8 @@ class PerplexityResolutionService {
             }
           ],
           temperature: 0.2,
-          max_tokens: 300
+          max_tokens: 300,
+          return_citations: true // Enable citations from Perplexity
         })
       });
 
@@ -79,6 +80,13 @@ class PerplexityResolutionService {
       // Parse the AI response
       const aiResponse = data.choices?.[0]?.message?.content || '';
       const parsed = this.parseAIResponse(aiResponse);
+
+      // Extract citations/sources from Perplexity response
+      const citations = data.citations || [];
+      if (citations.length > 0) {
+        parsed.sources = citations;
+        console.log(`📚 Found ${citations.length} sources:`, citations);
+      }
 
       console.log('📊 Parsed resolution:', parsed);
 

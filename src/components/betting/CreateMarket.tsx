@@ -33,8 +33,8 @@ export default function CreateMarket({ onBack, onCreateMarket, marketContext = '
   const [imagePreview, setImagePreview] = useState<string | null>(null);
 
   const categories = [
-    'Politics', 'Finance', 'Sports', 'Entertainment', 
-    'Technology', 'Health', 'Climate', 'Celebrity Gossip'
+    'Politics', 'Finance', 'Sports', 'Entertainment',
+    'Technology', 'Health', 'Climate', 'Gossip'
   ];
 
   const countries = [

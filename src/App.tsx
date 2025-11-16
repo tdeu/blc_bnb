@@ -954,9 +954,9 @@ export default function App() {
     };
     
     setUserBets(prev => [newBet, ...prev]);
-    
-    // Record bet in userDataService for persistence
-    userDataService.recordBet(
+
+    // Record bet in userDataService for persistence (now saves to Supabase)
+    const savedPredictionId = await userDataService.recordBet(
       walletConnection.address,
       marketId,
       market.claim,
@@ -968,7 +968,10 @@ export default function App() {
       newBet.potentialWinning, // Pass the calculated potential winning
       newBet.marketContractAddress // Pass contract address for claiming
     );
-    
+
+    // Update newBet.id to match the Supabase ID for transaction updates
+    const actualBetId = savedPredictionId || newBet.id;
+
     // Update user profile immediately
     setUserProfile({
       ...userProfile,
@@ -1050,10 +1053,10 @@ export default function App() {
                 : bet
             ));
 
-            // Update the localStorage bet with actual transaction data
-            userDataService.updateBetTransaction(
+            // Update the Supabase/localStorage bet with actual transaction data
+            await userDataService.updateBetTransaction(
               walletConnection.address,
-              newBet.id,
+              actualBetId,
               transactionId,
               betResult.shares,
               betResult.cost

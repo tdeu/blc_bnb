@@ -296,6 +296,29 @@ export default function ResolutionStatus({
                 </Badge>
               </div>
             )}
+
+            {/* AI Sources/Citations */}
+            {market.resolution_data?.sources && market.resolution_data.sources.length > 0 && (
+              <div className="space-y-2 mt-3">
+                <span className="text-sm font-medium">AI Sources:</span>
+                <div className="bg-muted p-3 rounded-lg space-y-1">
+                  {market.resolution_data.sources.map((source: string, index: number) => (
+                    <div key={index} className="flex items-start gap-2 text-xs">
+                      <span className="text-muted-foreground">{index + 1}.</span>
+                      <a
+                        href={source}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-blue-600 hover:text-blue-800 dark:text-blue-400 dark:hover:text-blue-300 underline break-all"
+                      >
+                        {source.length > 60 ? `${source.substring(0, 60)}...` : source}
+                      </a>
+                      <ExternalLink className="h-3 w-3 flex-shrink-0 text-muted-foreground" />
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
         )}
 

@@ -78,7 +78,7 @@ const translations = {
     futureEvents: 'Future Events',
     truthVerification: 'Truth Verification',
     entertainment: 'Entertainment',
-    celebrityGossip: 'Celebrity Gossip',
+    gossip: 'Gossip',
     finance: 'Finance',
     politics: 'Politics',
     sports: 'Sports',

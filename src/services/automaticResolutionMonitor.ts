@@ -287,7 +287,8 @@ export class AutomaticResolutionMonitor {
             source: source,
             resolved_by: 'api',
             timestamp: new Date().toISOString(),
-            gemini_fallback_used: geminiUsed
+            gemini_fallback_used: geminiUsed,
+            sources: resolution.sources || [] // Include Perplexity citations
           }
         })
         .eq('id', marketId);

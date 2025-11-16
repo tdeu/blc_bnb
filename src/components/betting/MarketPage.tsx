@@ -15,7 +15,7 @@ import {
   ThumbsUp, ThumbsDown, Send, Filter, Eye, AlertCircle,
   CheckCircle2, Clock3, FileText, Scale, Loader2, Brain
 } from 'lucide-react';
-import { toast } from 'sonner@2.0.3';
+import { toast } from 'sonner';
 import { useLanguage } from '../shared/LanguageContext';
 import { BettingMarket } from './BettingMarkets';
 import { generateMockComments, getMarketRules, formatTimeAgo, MarketComment, MarketRule } from '../../utils/marketData';
@@ -29,6 +29,7 @@ import { useBlockCastAI } from '../../hooks/useBlockCastAI';
 import { userDataService } from '../../utils/userDataService';
 import EvidenceSubmission from '../evidence/EvidenceSubmission';
 import { evidenceService } from '../../services/evidenceService';
+import { predictionService } from '../../services/predictionService';
 
 interface MarketPageProps {
   market: BettingMarket;
@@ -78,6 +79,14 @@ export default function MarketPage({ market, onPlaceBet, userBalance, onBack, wa
   // Wallet connection state
   const [isWalletConnected, setIsWalletConnected] = useState(walletConnected);
   const [userWalletBalance, setUserWalletBalance] = useState(0);
+  const [currentUserAddress, setCurrentUserAddress] = useState<string>('');
+
+  // Evidence submission state (for evidence_collection status markets)
+  const [evidenceText, setEvidenceText] = useState('');
+  const [evidenceFiles, setEvidenceFiles] = useState<File[]>([]);
+  const [evidenceLinks, setEvidenceLinks] = useState<string[]>(['']);
+  const [isSubmittingEvidence, setIsSubmittingEvidence] = useState(false);
+  const [submissionStep, setSubmissionStep] = useState<'idle' | 'validating' | 'payment' | 'storing' | 'complete'>('idle');
 
   // Helper function to get translated text
   const getTranslatedText = (text: string, translations?: { en: string; fr: string; sw: string }) => {
@@ -235,13 +244,32 @@ export default function MarketPage({ market, onPlaceBet, userBalance, onBack, wa
   const loadMarketActivity = async () => {
     setIsLoadingActivity(true);
     try {
-      // Evidence is now loaded from on-chain disputes only (no legacy database evidence)
-
-      // Load bet history from localStorage and blockchain if contract address exists
+      // Load bet history from Supabase first (all users' predictions)
       let bets: any[] = [];
-      if (market.contractAddress) {
+
+      // 1. Try to load from Supabase (primary source - shared across all users)
+      const supabaseResult = await predictionService.getMarketPredictions(market.id);
+      if (supabaseResult.success && supabaseResult.predictions && supabaseResult.predictions.length > 0) {
+        console.log(`📊 Loaded ${supabaseResult.predictions.length} predictions from Supabase`);
+
+        bets = supabaseResult.predictions.map((pred) => ({
+          id: pred.id,
+          walletAddress: pred.user_address,
+          position: pred.position,
+          amount: pred.amount,
+          shares: pred.shares || '0',
+          cost: pred.amount,
+          placedAt: new Date(pred.created_at),
+          transactionHash: pred.transaction_hash || 'pending',
+          transactionStatus: pred.transaction_status,
+          potentialReturn: pred.potential_return || pred.amount * 2,
+          odds: pred.odds
+        }));
+      }
+
+      // 2. If Supabase has no results, try blockchain events
+      if (bets.length === 0 && market.contractAddress) {
         try {
-          // For BSC, we can query SharesPurchased events from the contract
           const { ethers } = await import('ethers');
           const provider = new ethers.JsonRpcProvider('https://data-seed-prebsc-1-s1.binance.org:8545/');
 
@@ -250,7 +278,6 @@ export default function MarketPage({ market, onPlaceBet, userBalance, onBack, wa
           ];
           const contract = new ethers.Contract(market.contractAddress, marketABI, provider);
 
-          // Query past events (last 10,000 blocks to ensure we get all bets)
           const filter = contract.filters.SharesPurchased();
           const events = await contract.queryFilter(filter, -10000);
 
@@ -263,19 +290,19 @@ export default function MarketPage({ market, onPlaceBet, userBalance, onBack, wa
             shares: parseFloat(ethers.formatEther(event.args.shares)),
             cost: parseFloat(ethers.formatEther(event.args.cost)),
             placedAt: new Date(Number(event.args.timestamp) * 1000),
-            transactionHash: event.transactionHash
+            transactionHash: event.transactionHash,
+            transactionStatus: 'confirmed'
           }));
 
-          console.log('📊 Loaded BSC blockchain bets:', blockchainBets);
-          console.log('📊 Bet wallet addresses:', blockchainBets.map((b: any) => b.walletAddress));
           bets = blockchainBets;
         } catch (error) {
-          console.error('Failed to load BSC bets, falling back to localStorage:', error);
-          // Fallback to localStorage bets if blockchain fetch fails
-          bets = userDataService.getMarketBets(market.id);
+          console.error('Failed to load BSC bets:', error);
         }
-      } else {
-        // No contract address, use localStorage bets
+      }
+
+      // 3. Final fallback to localStorage (legacy support)
+      if (bets.length === 0) {
+        console.log('📊 Falling back to localStorage for bets');
         bets = userDataService.getMarketBets(market.id);
       }
 
@@ -310,6 +337,12 @@ export default function MarketPage({ market, onPlaceBet, userBalance, onBack, wa
         try {
           const balance = await walletService.getBalance();
           setUserWalletBalance(parseFloat(balance));
+
+          // Get current user address for "You" badge
+          const connection = walletService.getConnection();
+          if (connection?.address) {
+            setCurrentUserAddress(connection.address.toLowerCase());
+          }
         } catch (error) {
           console.error('Failed to get wallet balance:', error);
         }
@@ -1514,76 +1547,103 @@ export default function MarketPage({ market, onPlaceBet, userBalance, onBack, wa
               </div>
 
               {/* Betting Activity */}
-              {marketBets.map((bet) => (
-                <div key={bet.id} className="flex gap-4 p-4 bg-green-50 dark:bg-green-900/10 rounded-lg border border-green-200">
-                  <div className="flex-shrink-0">
-                    <div className={`w-8 h-8 rounded-full flex items-center justify-center ${
-                      bet.position === 'yes' ? 'bg-green-500' : 'bg-red-500'
-                    }`}>
-                      {bet.position === 'yes' ? (
-                        <ThumbsUp className="h-4 w-4 text-white" />
-                      ) : (
-                        <ThumbsDown className="h-4 w-4 text-white" />
-                      )}
-                    </div>
-                  </div>
-                  <div className="flex-1 space-y-1">
-                    <div className="flex items-center gap-2">
-                      <span className={`font-semibold ${
-                        bet.position === 'yes' ? 'text-green-700 dark:text-green-400' : 'text-red-700 dark:text-red-400'
+              {marketBets.map((bet) => {
+                const isOwnBet = currentUserAddress && bet.walletAddress &&
+                  bet.walletAddress.toLowerCase() === currentUserAddress;
+                const txStatus = bet.transactionStatus || (bet.transactionHash && bet.transactionHash !== 'pending' ? 'confirmed' : 'pending');
+
+                return (
+                  <div key={bet.id} className="flex gap-4 p-4 bg-green-50 dark:bg-green-900/10 rounded-lg border border-green-200">
+                    <div className="flex-shrink-0">
+                      <div className={`w-8 h-8 rounded-full flex items-center justify-center ${
+                        bet.position === 'yes' ? 'bg-green-500' : 'bg-red-500'
                       }`}>
-                        {bet.position === 'yes' ? 'YES' : 'NO'} Prediction Placed
-                      </span>
-                      <Badge variant="outline" className="text-xs">
-                        {bet.shares && Number(bet.shares) > 0
-                          ? `${Number(bet.shares).toFixed(3)} shares`
-                          : `${bet.amount || 0} CAST`}
-                      </Badge>
-                      {bet.cost && Number(bet.cost) > 0 && (
-                        <Badge variant="secondary" className="text-xs">
-                          @ {Number(bet.cost).toFixed(3)} CAST
-                        </Badge>
-                      )}
-                      {bet.odds && !bet.cost && (
-                        <Badge variant="secondary" className="text-xs">
-                          @ {Number(bet.odds).toFixed(2)}x
-                        </Badge>
-                      )}
+                        {bet.position === 'yes' ? (
+                          <ThumbsUp className="h-4 w-4 text-white" />
+                        ) : (
+                          <ThumbsDown className="h-4 w-4 text-white" />
+                        )}
+                      </div>
                     </div>
-                    <p className="text-sm text-muted-foreground">
-                      Cast by{' '}
-                      <span className="font-mono text-xs bg-muted px-1 rounded">
-                        {bet.walletAddress ? `${bet.walletAddress.slice(0, 6)}...${bet.walletAddress.slice(-4)}` : 'Unknown'}
-                      </span>
-                      {bet.shares && Number(bet.shares) > 0 && (
-                        <> • Potential return: {Number(bet.shares).toFixed(3)} CAST (if correct)</>
-                      )}
-                      {(!bet.shares || Number(bet.shares) === 0) && bet.potentialReturn && (
-                        <> • Potential return: {Number(bet.potentialReturn).toFixed(3)} CAST</>
-                      )}
-                      {(!bet.shares || Number(bet.shares) === 0) && !bet.potentialReturn && bet.amount && (
-                        <> • Potential return: {(Number(bet.amount) * 2).toFixed(3)} CAST</>
-                      )}
-                    </p>
-                    <div className="flex items-center gap-4 text-xs text-muted-foreground">
-                      <span>{new Date(bet.placedAt).toLocaleDateString()} at {new Date(bet.placedAt).toLocaleTimeString()}</span>
-                      {bet.transactionHash && (
-                        <a
-                          href={`https://testnet.bscscan.com/tx/${bet.transactionHash}`}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="font-mono text-blue-600 hover:text-blue-800 dark:text-blue-400 dark:hover:text-blue-300 underline"
-                        >
-                          TX: {bet.transactionHash.slice(0, 8)}...{bet.transactionHash.slice(-6)}
-                        </a>
-                      )}
-                      {bet.tokenId && (
-                        <span>NFT #{bet.tokenId}</span>
-                      )}
+                    <div className="flex-1 space-y-1">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className={`font-semibold ${
+                          bet.position === 'yes' ? 'text-green-700 dark:text-green-400' : 'text-red-700 dark:text-red-400'
+                        }`}>
+                          {bet.position === 'yes' ? 'YES' : 'NO'} Prediction Placed
+                        </span>
+                        {isOwnBet && (
+                          <Badge variant="default" className="text-xs bg-blue-500 hover:bg-blue-600">
+                            You
+                          </Badge>
+                        )}
+                        <Badge variant="outline" className="text-xs">
+                          {bet.shares && Number(bet.shares) > 0
+                            ? `${Number(bet.shares).toFixed(3)} shares`
+                            : `${bet.amount || 0} CAST`}
+                        </Badge>
+                        {bet.cost && Number(bet.cost) > 0 && (
+                          <Badge variant="secondary" className="text-xs">
+                            @ {Number(bet.cost).toFixed(3)} CAST
+                          </Badge>
+                        )}
+                        {bet.odds && !bet.cost && (
+                          <Badge variant="secondary" className="text-xs">
+                            @ {Number(bet.odds).toFixed(2)}x
+                          </Badge>
+                        )}
+                      </div>
+                      <p className="text-sm text-muted-foreground">
+                        Cast by{' '}
+                        <span className="font-mono text-xs bg-muted px-1 rounded">
+                          {bet.walletAddress ? `${bet.walletAddress.slice(0, 6)}...${bet.walletAddress.slice(-4)}` : 'Unknown'}
+                        </span>
+                        {bet.shares && Number(bet.shares) > 0 && (
+                          <> • Potential return: {Number(bet.shares).toFixed(3)} CAST (if correct)</>
+                        )}
+                        {(!bet.shares || Number(bet.shares) === 0) && bet.potentialReturn && (
+                          <> • Potential return: {Number(bet.potentialReturn).toFixed(3)} CAST</>
+                        )}
+                        {(!bet.shares || Number(bet.shares) === 0) && !bet.potentialReturn && bet.amount && (
+                          <> • Potential return: {(Number(bet.amount) * 2).toFixed(3)} CAST</>
+                        )}
+                      </p>
+                      <div className="flex items-center gap-4 text-xs text-muted-foreground flex-wrap">
+                        <span>{new Date(bet.placedAt).toLocaleDateString()} at {new Date(bet.placedAt).toLocaleTimeString()}</span>
+
+                        {/* Transaction Status Indicator */}
+                        {txStatus === 'pending' && (
+                          <span className="flex items-center gap-1 text-yellow-600 dark:text-yellow-400">
+                            <Clock3 className="h-3 w-3 animate-pulse" />
+                            TX Pending...
+                          </span>
+                        )}
+                        {txStatus === 'confirmed' && bet.transactionHash && bet.transactionHash !== 'pending' && (
+                          <a
+                            href={`https://testnet.bscscan.com/tx/${bet.transactionHash}`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="flex items-center gap-1 font-mono text-blue-600 hover:text-blue-800 dark:text-blue-400 dark:hover:text-blue-300 underline"
+                          >
+                            <CheckCircle2 className="h-3 w-3 text-green-500" />
+                            TX: {bet.transactionHash.slice(0, 8)}...{bet.transactionHash.slice(-6)}
+                          </a>
+                        )}
+                        {txStatus === 'failed' && (
+                          <span className="flex items-center gap-1 text-red-600 dark:text-red-400">
+                            <AlertCircle className="h-3 w-3" />
+                            TX Failed
+                          </span>
+                        )}
+
+                        {bet.tokenId && (
+                          <span>NFT #{bet.tokenId}</span>
+                        )}
+                      </div>
                     </div>
                   </div>
-                </div>
-              ))}
+                );
+              })}
 
               {/* Evidence Submissions */}
               {marketEvidences.map((evidence) => (

@@ -606,7 +606,11 @@ export default function BettingMarkets({ onPlaceBet, userBalance, onMarketSelect
 
                   switch (phase) {
                     case 'live':
-                      // Phase 1: Live markets - Show Y/N buttons with odds
+                      // Phase 1: Live markets - Show Y/N buttons with percentages
+                      // Convert odds to implied probability: percentage = (1 / odds) * 100
+                      const yesPercent = Math.round((1 / market.yesOdds) * 100);
+                      const noPercent = Math.round((1 / market.noOdds) * 100);
+
                       return (
                         <div className="grid grid-cols-2 gap-3">
                           <Button
@@ -619,7 +623,7 @@ export default function BettingMarkets({ onPlaceBet, userBalance, onMarketSelect
                             className="flex-1 bg-green-500/10 border-green-500/40 hover:bg-green-500/20 text-green-400 hover:text-green-300 h-10 text-xs md:text-sm font-semibold rounded-lg shadow-sm hover:shadow-md transition-all"
                           >
                             <TrendingUp className="h-3 w-3 mr-1" />
-                            YES {market.yesOdds.toFixed(2)}x
+                            YES {yesPercent}%
                           </Button>
 
                           <Button
@@ -632,7 +636,7 @@ export default function BettingMarkets({ onPlaceBet, userBalance, onMarketSelect
                             className="flex-1 bg-red-500/10 border-red-500/40 hover:bg-red-500/20 text-red-400 hover:text-red-300 h-10 text-xs md:text-sm font-semibold rounded-lg shadow-sm hover:shadow-md transition-all"
                           >
                             <TrendingDown className="h-3 w-3 mr-1" />
-                            NO {market.noOdds.toFixed(2)}x
+                            NO {noPercent}%
                           </Button>
                         </div>
                       );
