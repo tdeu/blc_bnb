@@ -109,7 +109,7 @@ BuyCAST                   →  0x45fEE9DAcF3Beb2C0C67dF057D068c0003C53B79
 
 ## Live Demo
 
-**🚀 Try it now**: VERCEL LINK HERE
+**🚀 Try it now**: https://blc-bnb.vercel.app/
 **📊 Contract Explorer**: https://testnet.bscscan.com
 
 **Quick Start (5 minutes)**:
@@ -191,5 +191,6 @@ Our AI oracle makes this possible. By automating resolution at 1/1000th the cost
 ---
 
 *Built for the Seedify x BNB Chain Prediction Markets Hackathon*
+
 
 
