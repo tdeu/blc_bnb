@@ -6,6 +6,7 @@ import AdminLayout from './AdminLayout';
 import AdminOverview from './AdminDashboard';
 import MarketApproval from './MarketApproval';
 import ResolutionManager from './ResolutionManager';
+import PendingResolutionManager from './PendingResolutionManager';
 import UnifiedTreasuryDashboard from './UnifiedTreasuryDashboard';
 import UsersDashboard from './UsersDashboard';
 import ReportsDashboard from './ReportsDashboard';
@@ -159,6 +160,7 @@ const Admin: React.FC<AdminProps> = ({
                 displayName: profile?.displayName
               }}
             />
+            <PendingResolutionManager />
             <ResolutionManager
               userProfile={{
                 walletAddress: walletConnection.address,

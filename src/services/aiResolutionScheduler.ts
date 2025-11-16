@@ -196,34 +196,45 @@ class AIResolutionScheduler {
 
       // Determine if manual review is needed
       let needsManualReview = false;
+      let needsEvidenceCollection = false;
       let finalResolution = perplexityResolution;
       let resolutionSource = 'Perplexity AI';
 
       if (geminiResolution) {
         // Check if AIs disagree
         if (perplexityResolution.outcome !== geminiResolution.outcome) {
-          console.warn('⚠️ Perplexity and Gemini disagree - marking for manual review');
+          console.warn('⚠️ Perplexity and Gemini disagree - needs evidence collection');
           needsManualReview = true;
+          needsEvidenceCollection = true;
           resolutionSource = 'Perplexity AI vs Gemini (CONFLICT)';
         } else {
-          // AIs agree - use the one with higher confidence
-          if (geminiResolution.confidence > perplexityResolution.confidence) {
-            finalResolution = geminiResolution;
-            resolutionSource = 'Gemini AI (fallback - higher confidence)';
+          // AIs agree - check if both are below 85%
+          const maxConfidence = Math.max(perplexityResolution.confidence, geminiResolution.confidence);
+
+          if (maxConfidence < 85) {
+            console.warn(`⚠️ Both AIs below 85% (max: ${maxConfidence}%) - triggering 48h evidence collection`);
+            needsEvidenceCollection = true;
+            resolutionSource = `Both AIs agree but low confidence (${maxConfidence}%)`;
           } else {
-            resolutionSource = 'Perplexity AI (confirmed by Gemini)';
+            // AIs agree and at least one is >= 85%
+            if (geminiResolution.confidence > perplexityResolution.confidence) {
+              finalResolution = geminiResolution;
+              resolutionSource = 'Gemini AI (fallback - higher confidence)';
+            } else {
+              resolutionSource = 'Perplexity AI (confirmed by Gemini)';
+            }
           }
         }
       }
 
-      // If either AI needs review or they conflict, mark for manual review
-      if (perplexityResolution.needsReview || (geminiResolution && geminiResolution.needsReview) || needsManualReview) {
-        console.warn('⚠️ Resolution needs manual review');
+      // If either AI needs review or they conflict, or both are low confidence -> evidence collection period
+      if (perplexityResolution.needsReview || (geminiResolution && geminiResolution.needsReview) || needsManualReview || needsEvidenceCollection) {
+        console.warn('⚠️ Resolution needs evidence collection period (48h)');
 
-        // Update market with "needs review" status, including both AI opinions if available
-        await this.markMarketForReview(market.id, perplexityResolution, geminiResolution, resolutionSource);
+        // Start 48h evidence collection period
+        await this.startEvidenceCollectionPeriod(market.id, perplexityResolution, geminiResolution, resolutionSource);
 
-        toast.warning(`Market "${market.claim}" needs manual review`);
+        toast.warning(`Market "${market.claim}" entered 48h evidence collection period`);
         return;
       }
 
@@ -280,35 +291,48 @@ class AIResolutionScheduler {
   }
 
   /**
-   * Mark market for manual review
+   * Start 48h evidence collection period
+   * Market goes into 'evidence_collection' status where users can submit evidences
    */
-  private async markMarketForReview(marketId: string, perplexityResolution: any, geminiResolution: any = null, source: string) {
+  private async startEvidenceCollectionPeriod(marketId: string, perplexityResolution: any, geminiResolution: any = null, source: string) {
     try {
       if (!supabase) return;
 
-      // Build admin notes with both AI opinions if available
-      let adminNotes = `AI NEEDS REVIEW:\n\nPerplexity AI: ${perplexityResolution.outcome.toUpperCase()} (${perplexityResolution.confidence}% confidence)\n${perplexityResolution.reasoning}`;
+      const now = new Date();
+      const evidencePeriodEnd = new Date(now.getTime() + 48 * 60 * 60 * 1000); // 48 hours from now
+
+      // Build admin notes with both AI opinions
+      let adminNotes = `🕐 EVIDENCE COLLECTION PERIOD (48h)\n\nOriginal AI Analysis:\n\nPerplexity AI: ${perplexityResolution.outcome.toUpperCase()} (${perplexityResolution.confidence}% confidence)\n${perplexityResolution.reasoning}`;
 
       if (geminiResolution) {
         adminNotes += `\n\nGemini AI: ${geminiResolution.outcome.toUpperCase()} (${geminiResolution.confidence}% confidence)\n${geminiResolution.reasoning}`;
 
         if (perplexityResolution.outcome !== geminiResolution.outcome) {
-          adminNotes = `⚠️ AI CONFLICT DETECTED - MANUAL REVIEW REQUIRED\n\n` + adminNotes;
+          adminNotes = `⚠️ AI CONFLICT - Evidence collection required\n\n` + adminNotes;
+        } else {
+          adminNotes = `⚠️ LOW CONFIDENCE (< 85%) - Evidence collection required\n\n` + adminNotes;
         }
       }
+
+      adminNotes += `\n\n📅 Evidence Period Ends: ${evidencePeriodEnd.toLocaleString()}`;
+      adminNotes += `\nUsers can submit evidences via IPFS during this period.`;
+      adminNotes += `\nAdmin can re-run AI with evidence context after period ends.`;
 
       const { error } = await supabase
         .from('approved_markets')
         .update({
-          status: 'pending_resolution',
+          status: 'evidence_collection',
+          evidence_period_start: now.toISOString(),
+          evidence_period_end: evidencePeriodEnd.toISOString(),
           resolution_data: {
-            outcome: perplexityResolution.outcome,
+            outcome: perplexityResolution.outcome, // Preliminary outcome
             confidence: perplexityResolution.confidence,
             admin_notes: adminNotes,
             source: source,
-            resolved_by: 'api',
-            timestamp: new Date().toISOString(),
+            resolved_by: 'pending', // Not yet resolved
+            timestamp: now.toISOString(),
             needs_manual_review: true,
+            evidence_collection_active: true,
             perplexity_result: perplexityResolution,
             gemini_result: geminiResolution
           }
@@ -316,11 +340,27 @@ class AIResolutionScheduler {
         .eq('id', marketId);
 
       if (error) {
-        console.error('Error marking market for review:', error);
+        console.error('Error starting evidence collection period:', error);
+        throw error;
       }
+
+      console.log(`✅ Evidence collection period started for market ${marketId}`);
+      console.log(`   Period ends: ${evidencePeriodEnd.toLocaleString()}`);
+      console.log(`   Users can now submit evidences via IPFS`);
+
     } catch (error) {
-      console.error('Error in markMarketForReview:', error);
+      console.error('Error in startEvidenceCollectionPeriod:', error);
+      throw error;
     }
+  }
+
+  /**
+   * Mark market for manual review (legacy - now uses evidence collection)
+   * @deprecated Use startEvidenceCollectionPeriod instead
+   */
+  private async markMarketForReview(marketId: string, perplexityResolution: any, geminiResolution: any = null, source: string) {
+    // Redirect to new evidence collection flow
+    await this.startEvidenceCollectionPeriod(marketId, perplexityResolution, geminiResolution, source);
   }
 
   /**

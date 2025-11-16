@@ -27,8 +27,15 @@ class IPFSService {
   private infuraProjectSecret: string | null = null;
 
   constructor() {
-    // Load from environment
-    if (typeof process !== 'undefined' && process.env) {
+    // Load from environment - support both Vite (frontend) and Node.js (backend)
+    if (typeof import.meta !== 'undefined' && import.meta.env) {
+      // Vite frontend environment
+      this.pinataApiKey = import.meta.env.VITE_PINATA_API_KEY || null;
+      this.pinataSecretKey = import.meta.env.VITE_PINATA_SECRET_KEY || null;
+      this.infuraProjectId = import.meta.env.VITE_IPFS_PROJECT_ID || null;
+      this.infuraProjectSecret = import.meta.env.VITE_IPFS_PROJECT_SECRET || null;
+    } else if (typeof process !== 'undefined' && process.env) {
+      // Node.js backend environment
       this.pinataApiKey = process.env.PINATA_API_KEY || null;
       this.pinataSecretKey = process.env.PINATA_SECRET_KEY || null;
       this.infuraProjectId = process.env.IPFS_PROJECT_ID || null;

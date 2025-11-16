@@ -249,7 +249,10 @@ class ApprovedMarketsService {
       trending: false,
       // Surface contract address from database
       // @ts-ignore augment at runtime for display
-      contractAddress: approvedMarket.contract_address || null
+      contractAddress: approvedMarket.contract_address || null,
+      // Evidence collection period fields
+      evidence_period_start: approvedMarket.evidence_period_start || undefined,
+      evidence_period_end: approvedMarket.evidence_period_end || undefined
     } as unknown as BettingMarket;
   }
 }

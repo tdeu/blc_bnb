@@ -30,7 +30,6 @@ interface ResolutionStatusProps {
   market: BettingMarket;
   resolution?: MarketResolution;
   onDispute?: () => void;
-  hcsTopicId?: string;
   transactionId?: string;
   consensusTimestamp?: Date;
   showTransactionLink?: boolean;
@@ -50,7 +49,6 @@ export default function ResolutionStatus({
   market,
   resolution,
   onDispute,
-  hcsTopicId,
   transactionId,
   consensusTimestamp,
   showTransactionLink = true,
@@ -335,57 +333,36 @@ export default function ResolutionStatus({
 
         <Separator />
 
-        {/* Hedera Transaction Information */}
-        {(transactionId || hcsTopicId) && (
+        {/* BNB Chain Transaction Information */}
+        {transactionId && (
           <div className="space-y-3">
             <h4 className="text-sm font-medium flex items-center gap-2">
               <FileText className="h-4 w-4" />
-              Blockchain Details
+              BNB Chain Details
             </h4>
 
-            {transactionId && (
-              <div className="flex items-center justify-between">
-                <span className="text-xs text-muted-foreground">Transaction ID:</span>
-                <div className="flex items-center gap-2">
-                  <span className="text-xs font-mono bg-muted px-2 py-1 rounded">
-                    {transactionId.slice(0, 8)}...{transactionId.slice(-8)}
-                  </span>
-                  {showTransactionLink && (
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      className="h-6 w-6 p-0"
-                      onClick={() => window.open(`https://hashscan.io/testnet/transaction/${transactionId}`, '_blank')}
-                    >
-                      <ExternalLink className="h-3 w-3" />
-                    </Button>
-                  )}
-                </div>
-              </div>
-            )}
-
-            {hcsTopicId && (
-              <div className="flex items-center justify-between">
-                <span className="text-xs text-muted-foreground">HCS Topic:</span>
-                <div className="flex items-center gap-2">
-                  <span className="text-xs font-mono bg-muted px-2 py-1 rounded">
-                    {hcsTopicId}
-                  </span>
+            <div className="flex items-center justify-between">
+              <span className="text-xs text-muted-foreground">Transaction Hash:</span>
+              <div className="flex items-center gap-2">
+                <span className="text-xs font-mono bg-muted px-2 py-1 rounded">
+                  {transactionId.slice(0, 8)}...{transactionId.slice(-8)}
+                </span>
+                {showTransactionLink && (
                   <Button
                     variant="ghost"
                     size="sm"
                     className="h-6 w-6 p-0"
-                    onClick={() => window.open(`https://hashscan.io/testnet/topic/${hcsTopicId}`, '_blank')}
+                    onClick={() => window.open(`https://testnet.bscscan.com/tx/${transactionId}`, '_blank')}
                   >
                     <ExternalLink className="h-3 w-3" />
                   </Button>
-                </div>
+                )}
               </div>
-            )}
+            </div>
 
             {consensusTimestamp && (
               <div className="flex items-center justify-between">
-                <span className="text-xs text-muted-foreground">Consensus Time:</span>
+                <span className="text-xs text-muted-foreground">Block Time:</span>
                 <span className="text-xs text-muted-foreground">
                   {formatTimestamp(consensusTimestamp)}
                 </span>

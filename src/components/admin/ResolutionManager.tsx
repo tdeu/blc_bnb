@@ -200,6 +200,22 @@ const ResolutionManager: React.FC<ResolutionManagerProps> = ({ userProfile }) =>
     const expired = isMarketExpired(market.expiresAt);
     const isResolving = resolvingMarkets.has(market.id);
     const hasResolution = market.resolution_data && market.resolution_data.final_outcome;
+    const isInEvidenceCollection = market.status === 'evidence_collection';
+
+    // Skip markets in evidence collection - they're handled by PendingResolutionManager
+    if (isInEvidenceCollection) {
+      return (
+        <div className="p-4 bg-yellow-50 dark:bg-yellow-900/20 rounded-lg">
+          <div className="flex items-center justify-center space-x-2 text-yellow-600 dark:text-yellow-400">
+            <AlertCircle className="h-5 w-5" />
+            <span>Market is in Evidence Collection Period</span>
+          </div>
+          <p className="text-sm text-center text-gray-600 dark:text-gray-400 mt-2">
+            Use the Pending Resolution Manager above to handle this market.
+          </p>
+        </div>
+      );
+    }
 
     if (!expired) {
       // For active markets, just show countdown

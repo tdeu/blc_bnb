@@ -232,6 +232,53 @@ function calculateRelevance(text: string, query: string): number {
   return Math.min(matches.length / searchTerms.length, 1.0);
 }
 
+// Evidence-based resolution endpoint
+// Re-runs AI resolution with user-submitted evidences after 48h period
+app.post('/api/resolve-with-evidence', async (req, res) => {
+  try {
+    console.log('🔄 Evidence-based resolution request received');
+
+    const { marketId, claim, description, contractAddress, evidenceSummary } = req.body;
+
+    if (!marketId || !claim || !evidenceSummary) {
+      return res.status(400).json({
+        success: false,
+        error: 'Missing required fields: marketId, claim, evidenceSummary'
+      });
+    }
+
+    console.log(`📋 Market: ${marketId}`);
+    console.log(`📋 Claim: ${claim}`);
+    console.log(`📋 Evidence length: ${evidenceSummary.length} chars`);
+
+    // Import the evidence resolution service dynamically
+    const { evidenceResolutionService } = await import('../services/evidenceResolutionService');
+
+    const result = await evidenceResolutionService.resolveWithEvidence({
+      marketId,
+      claim,
+      description,
+      contractAddress,
+      evidenceSummary
+    });
+
+    if (result.success) {
+      console.log(`✅ Market resolved: ${result.outcome} (${result.confidence}%)`);
+      res.json(result);
+    } else {
+      console.error(`❌ Resolution failed: ${result.error}`);
+      res.status(500).json(result);
+    }
+
+  } catch (error) {
+    console.error('❌ Evidence resolution endpoint error:', error);
+    res.status(500).json({
+      success: false,
+      error: error instanceof Error ? error.message : 'Internal server error'
+    });
+  }
+});
+
 // Start server
 app.listen(PORT, () => {
   console.log(`🚀 Anthropic proxy server running on port ${PORT}`);
@@ -239,6 +286,7 @@ app.listen(PORT, () => {
   console.log(`   POST /api/anthropic-proxy - AI proxy`);
   console.log(`   POST /api/scrape - Web scraping`);
   console.log(`   POST /api/upload-market-image - Image upload`);
+  console.log(`   POST /api/resolve-with-evidence - Re-run AI with evidences`);
   console.log(`   GET  /uploads - Static file serving`);
   console.log(`   GET  /health - Health check`);
   console.log(`   GET  /env-check - Environment check`);

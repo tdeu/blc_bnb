@@ -31,15 +31,20 @@ export class AutomaticResolutionMonitor {
 
     console.log('🚀 Starting AutomaticResolutionMonitor...');
     console.log(`   - Checking for expired markets every ${this.CHECK_INTERVAL_MS / 60000} minutes`);
+    console.log(`   - Monitoring evidence collection periods (48h)`);
 
     this.isRunning = true;
 
     // Run immediately on start
     this.checkAndResolveExpiredMarkets();
+    this.checkEvidenceCollectionPeriods();
 
     // Then run on interval
     this.checkInterval = setInterval(
-      () => this.checkAndResolveExpiredMarkets(),
+      () => {
+        this.checkAndResolveExpiredMarkets();
+        this.checkEvidenceCollectionPeriods();
+      },
       this.CHECK_INTERVAL_MS
     );
 
@@ -210,6 +215,128 @@ export class AutomaticResolutionMonitor {
   async triggerCheck(): Promise<void> {
     console.log('🔧 Manual trigger: checking and resolving expired markets...');
     await this.checkAndResolveExpiredMarkets();
+  }
+
+  /**
+   * Check for markets in evidence_collection status with expired 48h periods
+   * Notifies admin that these markets are ready for final resolution
+   */
+  private async checkEvidenceCollectionPeriods(): Promise<void> {
+    try {
+      console.log('\n🔍 Checking for expired evidence collection periods...');
+
+      if (!supabase) {
+        console.warn('⚠️  Supabase not initialized, skipping check');
+        return;
+      }
+
+      const now = new Date();
+      const nowISO = now.toISOString();
+
+      // Find markets where evidence collection period has ended
+      const { data: expiredPeriods, error } = await supabase
+        .from('approved_markets')
+        .select('id, claim, evidence_period_end, resolution_data')
+        .eq('status', 'evidence_collection')
+        .lt('evidence_period_end', nowISO)
+        .order('evidence_period_end', { ascending: true });
+
+      if (error) {
+        console.error('❌ Database error:', error);
+        return;
+      }
+
+      if (!expiredPeriods || expiredPeriods.length === 0) {
+        console.log('✅ No evidence collection periods have expired');
+        return;
+      }
+
+      console.log(`\n⚠️  ADMIN ACTION REQUIRED: ${expiredPeriods.length} market(s) need resolution`);
+      console.log('   These markets have completed their 48h evidence collection period.');
+      console.log('   Please use the Admin Panel → Pending Resolution Manager to:');
+      console.log('   1. Review submitted evidences');
+      console.log('   2. Re-run AI resolution with evidence context');
+      console.log('\n   Markets awaiting resolution:');
+
+      for (const market of expiredPeriods) {
+        const periodEndDate = new Date(market.evidence_period_end);
+        const hoursOverdue = Math.round((now.getTime() - periodEndDate.getTime()) / (1000 * 60 * 60));
+
+        console.log(`   📋 Market: ${market.id}`);
+        console.log(`      Claim: ${market.claim}`);
+        console.log(`      Period ended: ${periodEndDate.toLocaleString()}`);
+        console.log(`      Overdue by: ${hoursOverdue} hours`);
+
+        if (market.resolution_data?.perplexity_result && market.resolution_data?.gemini_result) {
+          console.log(`      Original AI conflict detected - needs evidence review`);
+        }
+        console.log('');
+      }
+
+      // Log summary for monitoring dashboards
+      console.log(`📊 Summary: ${expiredPeriods.length} markets waiting for admin resolution`);
+      console.log('   Use POST /api/resolve-with-evidence to trigger resolution');
+
+    } catch (error) {
+      console.error('❌ Error in checkEvidenceCollectionPeriods:', error);
+    }
+  }
+
+  /**
+   * Get markets currently in evidence collection period
+   */
+  async getMarketsInEvidenceCollection(): Promise<any[]> {
+    if (!supabase) return [];
+
+    const { data, error } = await supabase
+      .from('approved_markets')
+      .select('id, claim, evidence_period_start, evidence_period_end, resolution_data')
+      .eq('status', 'evidence_collection')
+      .order('evidence_period_end', { ascending: true });
+
+    if (error) {
+      console.error('Error fetching evidence collection markets:', error);
+      return [];
+    }
+
+    return data || [];
+  }
+
+  /**
+   * Get summary stats for monitoring
+   */
+  async getMonitoringStats(): Promise<{
+    activeMarkets: number;
+    evidenceCollectionMarkets: number;
+    expiredEvidencePeriods: number;
+    resolvedMarkets: number;
+  }> {
+    if (!supabase) {
+      return {
+        activeMarkets: 0,
+        evidenceCollectionMarkets: 0,
+        expiredEvidencePeriods: 0,
+        resolvedMarkets: 0
+      };
+    }
+
+    const now = new Date().toISOString();
+
+    const [active, evidenceCollection, expiredPeriods, resolved] = await Promise.all([
+      supabase.from('approved_markets').select('id', { count: 'exact', head: true }).eq('status', 'active'),
+      supabase.from('approved_markets').select('id', { count: 'exact', head: true }).eq('status', 'evidence_collection'),
+      supabase.from('approved_markets').select('id', { count: 'exact', head: true })
+        .eq('status', 'evidence_collection')
+        .lt('evidence_period_end', now),
+      supabase.from('approved_markets').select('id', { count: 'exact', head: true }).eq('status', 'resolved')
+    ]);
+
+    return {
+      activeMarkets: active.count || 0,
+      evidenceCollectionMarkets: evidenceCollection.count || 0,
+      expiredEvidencePeriods: expiredPeriods.count || 0,
+      resolvedMarkets: resolved.count || 0
+    };
   }
 }
 

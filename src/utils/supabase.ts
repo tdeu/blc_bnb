@@ -32,10 +32,13 @@ export interface ApprovedMarket {
   no_odds?: number;
   volume?: number;
   // New resolution fields
-  status?: 'active' | 'pending_resolution' | 'disputing' | 'resolved' | 'disputed_resolution' | 'locked';
+  status?: 'active' | 'pending_resolution' | 'disputing' | 'resolved' | 'disputed_resolution' | 'locked' | 'evidence_collection';
   resolution_data?: any;
   dispute_count?: number;
   dispute_period_end?: string;
+  // Evidence collection period fields
+  evidence_period_start?: string;
+  evidence_period_end?: string;
 }
 
 export interface MarketResolution {
@@ -44,18 +47,21 @@ export interface MarketResolution {
   outcome?: 'yes' | 'no';
   source: string;
   api_data?: any;
-  confidence?: 'high' | 'medium' | 'low';
+  confidence?: 'high' | 'medium' | 'low' | number;
   timestamp: string;
   dispute_period_end: string;
   final_outcome?: 'yes' | 'no';
-  resolved_by?: 'api' | 'admin' | 'contract';
+  resolved_by?: 'api' | 'admin' | 'contract' | 'pending';
   admin_notes?: string;
-  // Hedera fields
-  hcs_topic_id?: string;
-  hts_token_id?: string;
+  // BNB Chain / Blockchain fields
   contract_id?: string;
   transaction_id?: string;
   consensus_timestamp?: string;
+  // Evidence-based resolution fields
+  gemini_fallback_used?: string;
+  perplexity_result?: any;
+  gemini_result?: any;
+  evidence_based_resolution?: boolean;
   created_at: string;
   updated_at: string;
 }
@@ -80,28 +86,23 @@ export interface MarketDispute {
   updated_at: string;
 }
 
-export interface HCSTopic {
+export interface MarketEvidence {
   id: string;
-  topic_id: string;
-  topic_type: 'resolution' | 'dispute' | 'admin' | 'evidence' | 'attestation';
+  market_id: string;
+  user_address: string;
+  ipfs_hash: string;
+  evidence_type: 'screenshot' | 'article' | 'official_document' | 'social_media' | 'other';
+  title: string;
   description?: string;
-  admin_key?: string;
-  submit_key?: string;
+  source_url?: string;
+  file_name?: string;
+  file_size?: number;
+  mime_type?: string;
   created_at: string;
 }
 
-export interface HTSToken {
-  id: string;
-  token_id: string;
-  token_name: string;
-  token_symbol: string;
-  token_type: 'fungible' | 'non_fungible';
-  purpose: 'dispute_bond' | 'governance' | 'reward' | 'betting';
-  decimals: number;
-  total_supply?: number;
-  treasury_account?: string;
-  created_at: string;
-}
+// Legacy Hedera interfaces removed - now using BNB Chain + IPFS
+// HCSTopic and HTSToken are no longer used
 
 export interface APIIntegrationLog {
   id: string;
@@ -112,7 +113,6 @@ export interface APIIntegrationLog {
   success: boolean;
   error_message?: string;
   response_time_ms?: number;
-  hcs_log_message_id?: string;
   created_at: string;
 }
 

@@ -21,12 +21,14 @@ import { BettingMarket } from './BettingMarkets';
 import { generateMockComments, getMarketRules, formatTimeAgo, MarketComment, MarketRule } from '../../utils/marketData';
 import { debugClickHandler, validateButtonState, logCastingOperation } from '../../utils/testHelpers';
 import ResolutionStatus from '../shared/ResolutionStatus';
-import { MarketResolution } from '../../utils/supabase';
+import { MarketResolution, MarketEvidence } from '../../utils/supabase';
 import { resolutionService } from '../../utils/resolutionService';
 import { walletService } from '../../utils/walletService';
 import { AIAgentSimple } from '../ai/AIAgentSimple';
 import { useBlockCastAI } from '../../hooks/useBlockCastAI';
 import { userDataService } from '../../utils/userDataService';
+import EvidenceSubmission from '../evidence/EvidenceSubmission';
+import { evidenceService } from '../../services/evidenceService';
 
 interface MarketPageProps {
   market: BettingMarket;
@@ -68,6 +70,7 @@ export default function MarketPage({ market, onPlaceBet, userBalance, onBack, wa
 
   // Market activity (bets history)
   const [marketBets, setMarketBets] = useState<any[]>([]);
+  const [marketEvidences, setMarketEvidences] = useState<MarketEvidence[]>([]);
 
   // Activity feed state
   const [isLoadingActivity, setIsLoadingActivity] = useState(false);
@@ -278,7 +281,12 @@ export default function MarketPage({ market, onPlaceBet, userBalance, onBack, wa
       setMarketBets(bets);
       console.log('📊 Total bets loaded:', bets.length);
 
-      // Dispute system removed - using automated AI resolution
+      // Load evidences from Supabase
+      const evidenceResult = await evidenceService.getMarketEvidences(market.id);
+      if (evidenceResult.success && evidenceResult.evidences) {
+        setMarketEvidences(evidenceResult.evidences);
+        console.log('📋 Total evidences loaded:', evidenceResult.evidences.length);
+      }
     } catch (error) {
       console.error('Failed to load market activity:', error);
     } finally {
@@ -629,6 +637,7 @@ export default function MarketPage({ market, onPlaceBet, userBalance, onBack, wa
           { id: 'comments', label: t('comments'), icon: MessageCircle, count: comments.length },
           { id: 'rules', label: t('rules'), icon: Scale },
           { id: 'analysis', label: t('aiAnalysis'), icon: Zap },
+          ...(market.status === 'evidence_collection' ? [{ id: 'evidence', label: 'Submit Evidence', icon: FileText }] : []),
           ...(isMarketExpired() ? [{ id: 'resolution', label: 'AI Resolution', icon: Brain }] : [])
         ].map((tab) => {
           const Icon = tab.icon;
@@ -1044,6 +1053,19 @@ export default function MarketPage({ market, onPlaceBet, userBalance, onBack, wa
 
               </CardContent>
             </Card>
+          )}
+
+          {/* Evidence Submission Tab (only for markets in evidence_collection status) */}
+          {activeTab === 'evidence' && market.status === 'evidence_collection' && (
+            <EvidenceSubmission
+              marketId={market.id}
+              marketClaim={getTranslatedText(market.claim, market.claimTranslations)}
+              evidencePeriodEnd={market.evidence_period_end}
+              onEvidenceSubmitted={() => {
+                toast.success('Evidence submitted successfully!');
+                loadMarketActivity();
+              }}
+            />
           )}
 
           {/* AI Resolution Tab (only for expired markets) */}
@@ -1470,14 +1492,17 @@ export default function MarketPage({ market, onPlaceBet, userBalance, onBack, wa
                     </Badge>
                   </div>
                   <p className="text-sm text-muted-foreground">
-                    Prediction market created by{' '}
-                    <span className="font-mono text-xs bg-muted px-1 rounded">
-                      {/* This would come from market creation data */}
-                      0x1234...5678
-                    </span>
+                    Prediction market created
+                    {market.creatorWallet && (
+                      <> by{' '}
+                        <span className="font-mono text-xs bg-muted px-1 rounded">
+                          {market.creatorWallet.slice(0, 6)}...{market.creatorWallet.slice(-4)}
+                        </span>
+                      </>
+                    )}
                   </p>
                   <div className="flex items-center gap-4 text-xs text-muted-foreground">
-                    <span>{new Date(market.expiresAt.getTime() - 7 * 24 * 60 * 60 * 1000).toLocaleDateString()}</span>
+                    <span>{market.createdAt ? new Date(market.createdAt).toLocaleDateString() : 'Unknown date'}</span>
                     {market.contractAddress && (
                       <span className="font-mono">
                         Contract: {market.contractAddress.slice(0, 6)}...{market.contractAddress.slice(-4)}
@@ -1533,6 +1558,60 @@ export default function MarketPage({ market, onPlaceBet, userBalance, onBack, wa
                       )}
                       {bet.tokenId && (
                         <span>NFT #{bet.tokenId}</span>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              ))}
+
+              {/* Evidence Submissions */}
+              {marketEvidences.map((evidence) => (
+                <div key={evidence.id} className="flex gap-4 p-4 bg-yellow-50 dark:bg-yellow-900/10 rounded-lg border border-yellow-200">
+                  <div className="flex-shrink-0">
+                    <div className="w-8 h-8 bg-yellow-500 rounded-full flex items-center justify-center">
+                      <FileText className="h-4 w-4 text-white" />
+                    </div>
+                  </div>
+                  <div className="flex-1 space-y-1">
+                    <div className="flex items-center gap-2">
+                      <span className="font-semibold text-yellow-700 dark:text-yellow-400">
+                        Evidence Submitted
+                      </span>
+                      <Badge variant="outline" className="text-xs bg-yellow-100 text-yellow-700 border-yellow-200">
+                        {evidence.evidence_type.replace('_', ' ').toUpperCase()}
+                      </Badge>
+                    </div>
+                    <p className="text-sm font-medium">{evidence.title}</p>
+                    {evidence.description && (
+                      <p className="text-sm text-muted-foreground">{evidence.description}</p>
+                    )}
+                    <div className="flex items-center gap-2 text-xs">
+                      <span className="text-muted-foreground">
+                        By{' '}
+                        <span className="font-mono bg-muted px-1 rounded">
+                          {evidence.user_address.slice(0, 6)}...{evidence.user_address.slice(-4)}
+                        </span>
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-4 text-xs text-muted-foreground">
+                      <span>{new Date(evidence.created_at).toLocaleDateString()} at {new Date(evidence.created_at).toLocaleTimeString()}</span>
+                      <a
+                        href={evidenceService.getEvidenceUrl(evidence.ipfs_hash)}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="font-mono text-blue-600 hover:text-blue-800 dark:text-blue-400 dark:hover:text-blue-300 underline"
+                      >
+                        IPFS: {evidence.ipfs_hash.slice(0, 12)}...{evidence.ipfs_hash.slice(-6)}
+                      </a>
+                      {evidence.source_url && (
+                        <a
+                          href={evidence.source_url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-blue-600 hover:text-blue-800 dark:text-blue-400 dark:hover:text-blue-300 underline"
+                        >
+                          Source Link
+                        </a>
                       )}
                     </div>
                   </div>

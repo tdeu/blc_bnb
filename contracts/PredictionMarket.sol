@@ -15,6 +15,7 @@ contract PredictionMarket {
         Submited,
         Open,
         PendingResolution, // Market closed, awaiting AI resolution
+        EvidenceCollection, // 48h period for evidence submission (low confidence)
         Resolved,
         Canceled,
         Refunded // Market refunded (low confidence or failed resolution)
@@ -24,6 +25,14 @@ contract PredictionMarket {
         Unset,
         Yes,
         No
+    }
+
+    // Evidence submission structure
+    struct Evidence {
+        address submitter;
+        string ipfsHash;
+        uint256 timestamp;
+        string evidenceType; // screenshot, article, official_document, social_media, other
     }
 
     // Events
@@ -40,6 +49,14 @@ contract PredictionMarket {
     );
     event MarketRefunded(uint256 timestamp, uint256 totalRefunded);
     event WinningsPaidOut(address indexed winner, uint256 amount);
+    event EvidenceSubmitted(
+        address indexed submitter,
+        string ipfsHash,
+        string evidenceType,
+        uint256 timestamp
+    );
+    event EvidenceCollectionStarted(uint256 endTime);
+    event EvidenceCollectionEnded(uint256 totalEvidences);
     struct MarketInfo {
         bytes32 id;
         string question;
@@ -72,6 +89,11 @@ contract PredictionMarket {
 
     Outcome public resolvedOutcome;
     uint256 public confidenceScore;
+
+    // Evidence collection storage
+    Evidence[] public evidences;
+    uint256 public evidenceCollectionEndTime;
+    mapping(address => uint256) public userEvidenceCount; // Track how many evidences each user submitted
 
     modifier onlyAdmin() {
         require(adminManager.isAdmin(msg.sender), "Not admin");
@@ -475,6 +497,113 @@ contract PredictionMarket {
     function cancelMarket() external onlyAdmin {
         require(marketInfo.status == MarketStatus.Submited, "Market must be submitted");
         marketInfo.status = MarketStatus.Canceled;
+    }
+
+    // === EVIDENCE COLLECTION FUNCTIONS ===
+
+    /**
+     * @dev Start 48h evidence collection period (called when AI confidence < 85%)
+     * @param durationInSeconds Duration of evidence collection period (typically 48h = 172800 seconds)
+     */
+    function startEvidenceCollection(uint256 durationInSeconds) external onlyAdmin {
+        require(
+            marketInfo.status == MarketStatus.Open ||
+            marketInfo.status == MarketStatus.PendingResolution,
+            "Invalid market status"
+        );
+        require(block.timestamp >= marketInfo.endTime, "Market not expired yet");
+
+        marketInfo.status = MarketStatus.EvidenceCollection;
+        evidenceCollectionEndTime = block.timestamp + durationInSeconds;
+
+        emit EvidenceCollectionStarted(evidenceCollectionEndTime);
+    }
+
+    /**
+     * @dev Submit evidence for market resolution (anyone can call)
+     * @param ipfsHash IPFS CID of the evidence file
+     * @param evidenceType Type of evidence (screenshot, article, official_document, social_media, other)
+     */
+    function submitEvidence(string calldata ipfsHash, string calldata evidenceType) external {
+        require(marketInfo.status == MarketStatus.EvidenceCollection, "Not in evidence collection period");
+        require(block.timestamp < evidenceCollectionEndTime, "Evidence collection period ended");
+        require(bytes(ipfsHash).length > 0, "IPFS hash cannot be empty");
+        require(bytes(ipfsHash).length <= 100, "IPFS hash too long"); // CIDv1 is typically 59 chars
+        require(userEvidenceCount[msg.sender] < 10, "Max 10 evidences per user");
+
+        Evidence memory newEvidence = Evidence({
+            submitter: msg.sender,
+            ipfsHash: ipfsHash,
+            timestamp: block.timestamp,
+            evidenceType: evidenceType
+        });
+
+        evidences.push(newEvidence);
+        userEvidenceCount[msg.sender]++;
+
+        emit EvidenceSubmitted(msg.sender, ipfsHash, evidenceType, block.timestamp);
+    }
+
+    /**
+     * @dev End evidence collection and transition to pending resolution
+     * Can be called by admin after evidence period ends
+     */
+    function endEvidenceCollection() external onlyAdmin {
+        require(marketInfo.status == MarketStatus.EvidenceCollection, "Not in evidence collection");
+        require(block.timestamp >= evidenceCollectionEndTime, "Evidence period not yet ended");
+
+        marketInfo.status = MarketStatus.PendingResolution;
+        emit EvidenceCollectionEnded(evidences.length);
+    }
+
+    /**
+     * @dev Get total number of evidences submitted
+     */
+    function getEvidenceCount() external view returns (uint256) {
+        return evidences.length;
+    }
+
+    /**
+     * @dev Get evidence by index
+     * @param index Index of the evidence
+     */
+    function getEvidence(uint256 index) external view returns (
+        address submitter,
+        string memory ipfsHash,
+        uint256 timestamp,
+        string memory evidenceType
+    ) {
+        require(index < evidences.length, "Index out of bounds");
+        Evidence memory evidence = evidences[index];
+        return (evidence.submitter, evidence.ipfsHash, evidence.timestamp, evidence.evidenceType);
+    }
+
+    /**
+     * @dev Get all IPFS hashes for evidences (useful for AI re-analysis)
+     */
+    function getAllEvidenceHashes() external view returns (string[] memory) {
+        string[] memory hashes = new string[](evidences.length);
+        for (uint256 i = 0; i < evidences.length; i++) {
+            hashes[i] = evidences[i].ipfsHash;
+        }
+        return hashes;
+    }
+
+    /**
+     * @dev Check if market is in evidence collection period
+     */
+    function isInEvidenceCollection() external view returns (bool) {
+        return marketInfo.status == MarketStatus.EvidenceCollection &&
+               block.timestamp < evidenceCollectionEndTime;
+    }
+
+    /**
+     * @dev Get remaining time for evidence collection
+     */
+    function getEvidenceCollectionTimeRemaining() external view returns (uint256) {
+        if (marketInfo.status != MarketStatus.EvidenceCollection) return 0;
+        if (block.timestamp >= evidenceCollectionEndTime) return 0;
+        return evidenceCollectionEndTime - block.timestamp;
     }
 
     /**

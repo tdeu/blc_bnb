@@ -38,7 +38,7 @@ export interface BettingMarket {
   noOdds: number;
   totalCasters: number;
   expiresAt: Date;
-  status: 'active' | 'pending_resolution' | 'resolved' | 'locked' | 'offline';
+  status: 'active' | 'pending_resolution' | 'resolved' | 'locked' | 'offline' | 'evidence_collection';
   resolution?: 'yes' | 'no';
   trending: boolean;
   imageUrl?: string;
@@ -47,16 +47,25 @@ export interface BettingMarket {
   marketType: 'present' | 'future';
   confidenceLevel: 'high' | 'medium' | 'low';
   contractAddress?: string; // Blockchain contract address for this market
+  creatorWallet?: string; // Wallet address of market creator
+  createdAt?: Date; // Market creation timestamp
+  // Evidence collection period fields (48h when AI confidence < 85%)
+  evidence_period_start?: string;
+  evidence_period_end?: string;
   // Resolution system fields (simplified)
   resolution_data?: {
     outcome?: 'yes' | 'no';
     source?: string;
-    confidence?: 'high' | 'medium' | 'low';
+    confidence?: 'high' | 'medium' | 'low' | number;
     timestamp?: string;
     final_outcome?: 'yes' | 'no';
-    resolved_by?: 'api' | 'admin' | 'contract';
+    resolved_by?: 'api' | 'admin' | 'contract' | 'pending';
     admin_notes?: string;
     transaction_id?: string;
+    perplexity_result?: any;
+    gemini_result?: any;
+    evidence_collection_active?: boolean;
+    needs_manual_review?: boolean;
   };
 }
 
@@ -290,7 +299,12 @@ export default function BettingMarkets({ onPlaceBet, userBalance, onMarketSelect
            (market.dispute_period_end && new Date() > new Date(market.dispute_period_end));
   };
 
-  const getMarketPhase = (market: BettingMarket): 'live' | 'expired' => {
+  const getMarketPhase = (market: BettingMarket): 'live' | 'expired' | 'evidence_collection' => {
+    // Check if market is in evidence collection period (disputable)
+    if (market.status === 'evidence_collection') {
+      return 'evidence_collection';
+    }
+
     // Check if market is truly expired (past expiry date)
     const now = new Date();
     const hasExpired = market.expiresAt && new Date(market.expiresAt).getTime() < now.getTime();
@@ -305,6 +319,7 @@ export default function BettingMarkets({ onPlaceBet, userBalance, onMarketSelect
     const phase = getMarketPhase(market);
     switch (phase) {
       case 'live': return 'Live';
+      case 'evidence_collection': return 'Disputable';
       case 'expired': return 'Expired';
       default: return 'Unknown';
     }
@@ -314,6 +329,7 @@ export default function BettingMarkets({ onPlaceBet, userBalance, onMarketSelect
     const phase = getMarketPhase(market);
     switch (phase) {
       case 'live': return 'bg-green-500/20 text-green-400 border-green-500/30';
+      case 'evidence_collection': return 'bg-yellow-500/20 text-yellow-400 border-yellow-500/30';
       case 'expired': return 'bg-gray-500/20 text-gray-400 border-gray-500/30';
       default: return 'bg-gray-500/20 text-gray-400 border-gray-500/30';
     }
@@ -579,6 +595,35 @@ export default function BettingMarkets({ onPlaceBet, userBalance, onMarketSelect
                             <TrendingDown className="h-3 w-3 mr-1" />
                             NO {market.noOdds.toFixed(2)}x
                           </Button>
+                        </div>
+                      );
+
+                    case 'evidence_collection':
+                      // Phase 2: Evidence Collection Period - Show "DISPUTABLE" badge with countdown
+                      const evidenceEndTime = market.evidence_period_end ? new Date(market.evidence_period_end) : null;
+                      const timeUntilEnd = evidenceEndTime ? Math.max(0, evidenceEndTime.getTime() - Date.now()) : 0;
+                      const hoursRemaining = Math.floor(timeUntilEnd / (1000 * 60 * 60));
+                      const minutesRemaining = Math.floor((timeUntilEnd % (1000 * 60 * 60)) / (1000 * 60));
+
+                      return (
+                        <div className="space-y-2">
+                          {/* DISPUTABLE Badge */}
+                          <div className="flex justify-center">
+                            <Badge className={`text-sm font-bold px-4 py-2 ${statusColor} rounded-full shadow-md animate-pulse`}>
+                              ⚠️ DISPUTABLE
+                            </Badge>
+                          </div>
+
+                          {/* Countdown */}
+                          <div className="text-center text-xs text-yellow-400">
+                            <Clock className="h-3 w-3 inline-block mr-1" />
+                            {hoursRemaining}h {minutesRemaining}m remaining to submit evidence
+                          </div>
+
+                          {/* Click to submit evidence */}
+                          <div className="text-center text-xs text-muted-foreground">
+                            Click to view & submit evidence
+                          </div>
                         </div>
                       );
 
