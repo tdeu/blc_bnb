@@ -36,16 +36,20 @@ class ApprovedMarketsService {
         dispute_period_end: (market as any).dispute_period_end // Include dispute period for disputable markets
       };
 
+      // Use upsert to handle cases where market might already exist (duplicate approval attempts)
       const { error } = await supabase
         .from('approved_markets')
-        .insert([approvedMarket]);
+        .upsert([approvedMarket], {
+          onConflict: 'id',
+          ignoreDuplicates: false // Update if exists
+        });
 
       if (error) {
         console.error('Error storing approved market:', error);
         return false;
       }
 
-      console.log(`✅ Market stored in Supabase: ${market.claim}`);
+      console.log(`✅ Market stored/updated in Supabase: ${market.claim}`);
       return true;
     } catch (error) {
       console.error('Error in storeApprovedMarket:', error);

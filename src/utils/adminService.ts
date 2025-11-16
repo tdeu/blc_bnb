@@ -393,8 +393,39 @@ class AdminService {
       try {
         console.log(`📝 Calling contract.approveMarket() for ${marketContractAddress}`);
 
-        // Create provider and signer for BSC testnet
-        const provider = new ethers.JsonRpcProvider('https://data-seed-prebsc-1-s1.binance.org:8545/');
+        // Create provider and signer for BSC testnet (using multiple fallback RPCs)
+        const bscTestnetRPCs = [
+          'https://bsc-testnet-rpc.publicnode.com',
+          'https://data-seed-prebsc-1-s1.binance.org:8545/',
+          'https://data-seed-prebsc-2-s1.binance.org:8545/',
+          'https://bsc-testnet.public.blastapi.io'
+        ];
+
+        let provider: ethers.JsonRpcProvider | null = null;
+        let lastError: Error | null = null;
+
+        // Try each RPC until one works
+        for (const rpcUrl of bscTestnetRPCs) {
+          try {
+            console.log(`🔗 Trying RPC: ${rpcUrl}`);
+            const testProvider = new ethers.JsonRpcProvider(rpcUrl);
+            // Test the connection
+            await testProvider.getBlockNumber();
+            provider = testProvider;
+            console.log(`✅ Connected to RPC: ${rpcUrl}`);
+            break;
+          } catch (err) {
+            console.warn(`⚠️ RPC ${rpcUrl} failed:`, err);
+            lastError = err as Error;
+          }
+        }
+
+        if (!provider) {
+          console.warn('⚠️ All BSC testnet RPCs failed, skipping on-chain activation');
+          console.warn('   Market is approved in database but not activated on blockchain');
+          return;
+        }
+
         const signer = new ethers.Wallet(privateKey, provider);
 
         console.log(`🔐 Using signer address: ${signer.address}`);

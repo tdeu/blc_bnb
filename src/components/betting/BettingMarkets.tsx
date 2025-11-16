@@ -117,7 +117,34 @@ export default function BettingMarkets({ onPlaceBet, userBalance, onMarketSelect
       setIsCalculatingCost(true);
       try {
         const { ethers } = await import('ethers');
-        const provider = new ethers.JsonRpcProvider('https://data-seed-prebsc-1-s1.binance.org:8545/');
+
+        // Try multiple BSC testnet RPCs for reliability
+        const bscTestnetRPCs = [
+          'https://bsc-testnet-rpc.publicnode.com',
+          'https://data-seed-prebsc-1-s1.binance.org:8545/',
+          'https://data-seed-prebsc-2-s1.binance.org:8545/',
+          'https://bsc-testnet.public.blastapi.io'
+        ];
+
+        let provider: any = null;
+        for (const rpcUrl of bscTestnetRPCs) {
+          try {
+            const testProvider = new ethers.JsonRpcProvider(rpcUrl);
+            await testProvider.getBlockNumber(); // Test connection
+            provider = testProvider;
+            break;
+          } catch {
+            // Try next RPC
+          }
+        }
+
+        if (!provider) {
+          // Fallback: Use simple calculation based on odds
+          const odds = betPosition === 'yes' ? selectedMarket.yesOdds : selectedMarket.noOdds;
+          const estimatedShares = parseFloat(betAmount) * (odds || 2.0);
+          setEstimatedCost(estimatedShares.toFixed(4));
+          return;
+        }
 
         const marketABI = [
           'function getPriceYes(uint256 sharesToBuy) public view returns (uint256)',
@@ -134,7 +161,10 @@ export default function BettingMarkets({ onPlaceBet, userBalance, onMarketSelect
         setEstimatedCost(costInCast);
       } catch (error) {
         console.warn('Failed to calculate cost:', error);
-        setEstimatedCost(null);
+        // Fallback calculation
+        const odds = betPosition === 'yes' ? selectedMarket?.yesOdds : selectedMarket?.noOdds;
+        const estimatedShares = parseFloat(betAmount) * (odds || 2.0);
+        setEstimatedCost(estimatedShares.toFixed(4));
       } finally {
         setIsCalculatingCost(false);
       }

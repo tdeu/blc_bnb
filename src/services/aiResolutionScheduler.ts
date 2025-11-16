@@ -81,7 +81,7 @@ class AIResolutionScheduler {
         return;
       }
 
-      console.log('📊 Loading active markets for scheduling...');
+      console.log('📊 [SCHEDULER] Loading active markets for scheduling...');
 
       const { data, error } = await supabase
         .from('approved_markets')
@@ -90,30 +90,39 @@ class AIResolutionScheduler {
         .order('expires_at', { ascending: true });
 
       if (error) {
-        console.error('Error loading markets:', error);
+        console.error('[SCHEDULER] Error loading markets:', error);
         return;
       }
 
       if (!data || data.length === 0) {
-        console.log('📭 No active markets to schedule');
+        console.log('📭 [SCHEDULER] No active markets to schedule');
         return;
       }
 
-      console.log(`📋 Found ${data.length} active markets`);
+      console.log(`📋 [SCHEDULER] Found ${data.length} active markets`);
 
       // Schedule each market
       for (const market of data) {
+        console.log(`🔍 [SCHEDULER] Processing market: ${market.id}`);
+        console.log(`   Claim: ${market.claim}`);
+        console.log(`   Expires at: ${market.expires_at}`);
+
         // Skip if already scheduled
         if (this.scheduledMarkets.has(market.id)) {
+          console.log(`   ⏭️ Already scheduled, skipping`);
           continue;
         }
 
         const expiresAt = new Date(market.expires_at);
         const now = new Date();
+        const timeUntilExpiry = expiresAt.getTime() - now.getTime();
+        const daysUntilExpiry = Math.round(timeUntilExpiry / 1000 / 60 / 60 / 24);
+
+        console.log(`   Time until expiry: ${daysUntilExpiry} days (${timeUntilExpiry} ms)`);
 
         // Skip if already expired (should be handled by existing monitor)
         if (expiresAt <= now) {
-          console.log(`⏭️ Market ${market.id} already expired, skipping scheduler`);
+          console.log(`   ⏭️ Market already expired, skipping scheduler`);
           continue;
         }
 
@@ -126,8 +135,16 @@ class AIResolutionScheduler {
         });
       }
 
+      // Summary of scheduled markets
+      const scheduledCount = Array.from(this.scheduledMarkets.values()).filter(m => m.timerId !== undefined).length;
+      const deferredCount = Array.from(this.scheduledMarkets.values()).filter(m => m.timerId === undefined).length;
+      console.log(`\n📊 [SCHEDULER] Summary:`);
+      console.log(`   Total markets tracked: ${this.scheduledMarkets.size}`);
+      console.log(`   Markets with active timers: ${scheduledCount}`);
+      console.log(`   Markets deferred (too far out): ${deferredCount}`);
+
     } catch (error) {
-      console.error('Error in loadAndScheduleMarkets:', error);
+      console.error('[SCHEDULER] Error in loadAndScheduleMarkets:', error);
     }
   }
 
@@ -138,16 +155,44 @@ class AIResolutionScheduler {
     const now = new Date();
     const timeUntilExpiry = market.expiresAt.getTime() - now.getTime();
 
+    console.log(`\n⏰ [SCHEDULER] scheduleMarketResolution called for: ${market.id}`);
+    console.log(`   Now: ${now.toISOString()}`);
+    console.log(`   Expires at: ${market.expiresAt.toISOString()}`);
+    console.log(`   Time until expiry: ${timeUntilExpiry} ms`);
+    console.log(`   Time until expiry: ${Math.round(timeUntilExpiry / 1000 / 60 / 60 / 24)} days`);
+
     if (timeUntilExpiry <= 0) {
-      console.log(`⏭️ Market ${market.id} already expired`);
+      console.log(`   ⏭️ Market already expired (timeUntilExpiry <= 0)`);
       return;
     }
 
-    console.log(`⏰ Scheduling market ${market.id} for resolution in ${Math.round(timeUntilExpiry / 1000 / 60)} minutes`);
-    console.log(`   Expires at: ${market.expiresAt.toLocaleString()}`);
+    // JavaScript setTimeout max value is ~24.8 days (2^31 - 1 milliseconds)
+    // If expiry is longer, we'll rely on periodic checks instead of setTimeout
+    const MAX_TIMEOUT_MS = 2147483647; // Max safe setTimeout value (~24.8 days)
+
+    console.log(`   MAX_TIMEOUT_MS: ${MAX_TIMEOUT_MS} (~24.8 days)`);
+    console.log(`   timeUntilExpiry: ${timeUntilExpiry} ms`);
+    console.log(`   Is too far for setTimeout? ${timeUntilExpiry > MAX_TIMEOUT_MS ? 'YES - SKIP SETTIMEOUT' : 'NO - Safe to schedule'}`);
+
+    if (timeUntilExpiry > MAX_TIMEOUT_MS) {
+      console.log(`   🚫 SKIPPING setTimeout - Market expiry too far in future (>${Math.round(MAX_TIMEOUT_MS / 1000 / 60 / 60 / 24)} days)`);
+      console.log(`   Market will NOT be scheduled until closer to expiration`);
+      console.log(`   Periodic scan will re-check this market every 5 minutes`);
+
+      // Store market but without timer - will be checked by loadAndScheduleMarkets periodically
+      this.scheduledMarkets.set(market.id, {
+        ...market,
+        timerId: undefined
+      });
+      console.log(`   ✅ Market stored WITHOUT timer (no automatic resolution will occur)`);
+      return;
+    }
+
+    console.log(`   ⏰ SAFE TO SCHEDULE - Setting setTimeout for ${Math.round(timeUntilExpiry / 1000 / 60)} minutes`);
 
     // Set a timeout to trigger resolution at expiry
     const timerId = setTimeout(async () => {
+      console.log(`🔔 [SCHEDULER] setTimeout FIRED for market: ${market.id}`);
       await this.triggerMarketResolution(market);
       // Remove from scheduled markets after resolution
       this.scheduledMarkets.delete(market.id);
@@ -159,7 +204,7 @@ class AIResolutionScheduler {
       timerId
     });
 
-    console.log(`✅ Market ${market.id} scheduled successfully`);
+    console.log(`   ✅ Market scheduled with timer ID: ${timerId}`);
   }
 
   /**
@@ -167,10 +212,27 @@ class AIResolutionScheduler {
    */
   private async triggerMarketResolution(market: ScheduledMarket) {
     try {
+      const now = new Date();
+      const timeUntilExpiry = market.expiresAt.getTime() - now.getTime();
+
       console.log('🤖 ============================================');
-      console.log('🤖 TRIGGERING AI RESOLUTION');
+      console.log('🤖 [SCHEDULER] TRIGGERING AI RESOLUTION');
+      console.log(`📋 Market ID: ${market.id}`);
       console.log(`📋 Market: ${market.claim}`);
       console.log(`⏰ Expired at: ${market.expiresAt.toLocaleString()}`);
+      console.log(`⏰ Current time: ${now.toLocaleString()}`);
+      console.log(`⏰ Time until expiry: ${timeUntilExpiry} ms (${Math.round(timeUntilExpiry / 1000 / 60 / 60 / 24)} days)`);
+
+      // CRITICAL SAFETY CHECK: Don't resolve if market hasn't actually expired yet!
+      // This prevents setTimeout overflow bugs from causing premature resolution
+      if (timeUntilExpiry > 0) {
+        console.error('🚫 BLOCKED: Market has NOT expired yet! Skipping resolution.');
+        console.error(`   Market expires in ${Math.round(timeUntilExpiry / 1000 / 60 / 60 / 24)} days`);
+        console.error('   This was likely caused by setTimeout integer overflow.');
+        return;
+      }
+
+      console.log('✅ Market is expired, proceeding with AI resolution...');
       console.log('🤖 ============================================');
 
       // Call Perplexity AI to get resolution
@@ -234,7 +296,10 @@ class AIResolutionScheduler {
         // Start 48h evidence collection period
         await this.startEvidenceCollectionPeriod(market.id, perplexityResolution, geminiResolution, resolutionSource);
 
-        toast.warning(`Market "${market.claim}" entered 48h evidence collection period`);
+        toast.warning(`Market "${market.claim.substring(0, 50)}..." entered 48h evidence collection period`, {
+          duration: 8000,
+          description: 'AI confidence was below 85% or AIs disagreed. Users can submit evidence during this period.'
+        });
         return;
       }
 

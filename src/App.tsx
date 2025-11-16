@@ -397,22 +397,28 @@ export default function App() {
     marketStatusService.start();
 
     // Start automatic resolution monitoring
+    // This monitor checks for expired markets every 5 minutes and triggers AI resolution
     console.log('🚀 Starting automatic resolution monitor...');
     try {
       automaticResolutionMonitor.start();
       console.log('✅ Automatic resolution monitor started successfully');
+      console.log('   - Checks for expired markets every 5 minutes');
+      console.log('   - Only processes markets where expires_at < NOW()');
+      console.log('   - Triggers Perplexity + Gemini AI resolution');
     } catch (error) {
       console.error('❌ Failed to start automatic resolution monitor:', error);
     }
 
     // Start AI resolution scheduler
-    console.log('🚀 Starting AI resolution scheduler...');
-    try {
-      aiResolutionScheduler.start();
-      console.log('✅ AI resolution scheduler started successfully');
-    } catch (error) {
-      console.error('❌ Failed to start AI resolution scheduler:', error);
-    }
+    // DISABLED: This scheduler has setTimeout overflow issues for markets > 24.8 days
+    // The automaticResolutionMonitor handles expired markets via periodic checks instead
+    console.log('⏸️ AI resolution scheduler DISABLED (using automaticResolutionMonitor instead)');
+    // try {
+    //   aiResolutionScheduler.start();
+    //   console.log('✅ AI resolution scheduler started successfully');
+    // } catch (error) {
+    //   console.error('❌ Failed to start AI resolution scheduler:', error);
+    // }
 
     // Make test function available in browser console for debugging
     (window as any).testMarketRefresh = testMarketRefresh;
@@ -428,6 +434,7 @@ export default function App() {
     return () => {
       console.log('🛑 Cleaning up services...');
       marketStatusService.stop();
+      automaticResolutionMonitor.stop();
       aiResolutionScheduler.stop();
     };
   }, []);
