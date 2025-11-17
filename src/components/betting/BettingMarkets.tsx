@@ -775,7 +775,7 @@ export default function BettingMarkets({ onPlaceBet, userBalance, onMarketSelect
                 >
                   <span className="text-lg">True</span>
                   <span className="text-sm opacity-80">
-                    {selectedMarket?.yesOdds.toFixed(2)}x odds
+                    {selectedMarket?.yesOdds ? Math.round((1 / selectedMarket.yesOdds) * 100) : 0}%
                   </span>
                 </Button>
                 <Button
@@ -785,7 +785,7 @@ export default function BettingMarkets({ onPlaceBet, userBalance, onMarketSelect
                 >
                   <span className="text-lg">False</span>
                   <span className="text-sm opacity-80">
-                    {selectedMarket?.noOdds.toFixed(2)}x odds
+                    {selectedMarket?.noOdds ? Math.round((1 / selectedMarket.noOdds) * 100) : 0}%
                   </span>
                 </Button>
               </div>
