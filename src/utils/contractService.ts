@@ -257,6 +257,45 @@ export class ContractService {
     };
   }
 
+  // Get user positions across all markets
+  async getUserPositionsForMarkets(
+    marketAddresses: string[],
+    userAddress: string
+  ): Promise<Map<string, UserPosition>> {
+    const positions = new Map<string, UserPosition>();
+
+    // Fetch positions in parallel with rate limiting
+    const batchSize = 5; // Avoid rate limiting
+    for (let i = 0; i < marketAddresses.length; i += batchSize) {
+      const batch = marketAddresses.slice(i, i + batchSize);
+      const results = await Promise.all(
+        batch.map(async (address) => {
+          try {
+            const position = await this.getUserPosition(address, userAddress);
+            return { address, position };
+          } catch (error) {
+            console.warn(`Failed to fetch position for market ${address}:`, error);
+            return { address, position: { yesShares: '0', noShares: '0', totalValue: '0' } };
+          }
+        })
+      );
+
+      results.forEach(({ address, position }) => {
+        // Only include positions where user has shares
+        if (parseFloat(position.yesShares) > 0 || parseFloat(position.noShares) > 0) {
+          positions.set(address, position);
+        }
+      });
+
+      // Small delay between batches to avoid rate limiting
+      if (i + batchSize < marketAddresses.length) {
+        await new Promise(resolve => setTimeout(resolve, 100));
+      }
+    }
+
+    return positions;
+  }
+
   // Resolve market (admin only) - DEPRECATED, use two-stage resolution
   async resolveMarket(marketAddress: string, outcome: number, signer: ethers.Signer): Promise<string> {
     const marketContract = new ethers.Contract(

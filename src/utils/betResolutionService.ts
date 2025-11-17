@@ -185,6 +185,23 @@ export class BetResolutionService {
   }
 
   /**
+   * Get all bets for a specific wallet
+   */
+  getUserBets(walletAddress: string): UserBettingHistory[] {
+    try {
+      const storageKey = `user_bets_${walletAddress.toLowerCase()}`;
+      const data = localStorage.getItem(storageKey);
+      if (!data) return [];
+
+      const bets: UserBettingHistory[] = JSON.parse(data);
+      return bets;
+    } catch (error) {
+      console.error('Error getting user bets:', error);
+      return [];
+    }
+  }
+
+  /**
    * Get P&L summary for a wallet
    */
   getPnLSummary(walletAddress: string): {

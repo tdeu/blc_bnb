@@ -45,6 +45,7 @@ import { aiResolutionScheduler } from './services/aiResolutionScheduler';
 import { TestIPFS } from './pages/TestIPFS';
 import { factoryService } from './services/factoryService';
 import { placeBet } from './utils/contractService';
+import { useUserPositions } from './hooks/useUserPositions';
 
 interface UserProfile {
   id: string;
@@ -124,7 +125,36 @@ export default function App() {
   const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
   const [userBets, setUserBets] = useState<UserBet[]>([]);
   const [markets, setMarkets] = useState<BettingMarket[]>([]);
-  
+
+  // Fetch user positions from blockchain
+  const {
+    userBets: blockchainUserBets,
+    isLoading: isLoadingPositions,
+    refetch: refetchPositions
+  } = useUserPositions(walletConnection?.address, marketContracts);
+
+  // Sync blockchain positions with local state
+  useEffect(() => {
+    if (blockchainUserBets.length > 0) {
+      console.log(`📊 Loaded ${blockchainUserBets.length} positions from blockchain for wallet ${walletConnection?.address}`);
+      setUserBets(blockchainUserBets);
+    }
+  }, [blockchainUserBets, walletConnection?.address]);
+
+  // Populate marketContracts when markets load (enables blockchain position fetching)
+  useEffect(() => {
+    const contracts: Record<string, string> = {};
+    markets.forEach(market => {
+      if (market.contractAddress) {
+        contracts[market.id] = market.contractAddress;
+      }
+    });
+    if (Object.keys(contracts).length > 0) {
+      console.log(`🔗 Registered ${Object.keys(contracts).length} market contracts for position tracking`);
+      setMarketContracts(contracts);
+    }
+  }, [markets]);
+
   // Verification state
   const [verificationResult, setVerificationResult] = useState<VerificationResult | null>(null);
   const [isVerifying, setIsVerifying] = useState(false);
@@ -1104,6 +1134,10 @@ export default function App() {
 
                   // Update CAST balance in state
                   setCastBalance(parseFloat(newCastBalance));
+
+                  // Refresh user positions from blockchain to ensure portfolio is updated
+                  console.log('🔄 Refreshing user positions from blockchain...');
+                  refetchPositions();
 
                   // Show informative toast about the balance changes
                   toast.info(

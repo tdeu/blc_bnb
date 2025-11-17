@@ -42,88 +42,43 @@ export default function BettingPortfolio({ userBalance, userBets: propUserBets }
   const [cancelingListing, setCancelingListing] = useState<string | null>(null); // Track which listing is being canceled
   const [nftListings, setNftListings] = useState<Map<number, NFTListing>>(new Map()); // Store NFT listing data
   const [isSyncing, setIsSyncing] = useState(false);
-  const [localBets, setLocalBets] = useState<UserBet[]>(propUserBets);
   const [claimingBet, setClaimingBet] = useState<string | null>(null); // Track which bet is being claimed
   const [claimingAll, setClaimingAll] = useState(false); // Track bulk claim
 
-  // Use local bets state which gets updated from localStorage
-  // Show ALL bets regardless of factory address
-  const userBets = localBets;
+  // Use props directly - data now comes from blockchain via useUserPositions hook in App.tsx
+  const userBets = propUserBets;
 
-  // Load bets from localStorage
-  const loadBetsFromStorage = () => {
-    try {
-      const walletKeys = Object.keys(localStorage).filter(key => key.startsWith('user_bets_'));
-      if (walletKeys.length === 0) return [];
-
-      const walletAddress = walletKeys[0].replace('user_bets_', '');
-      const storageKey = `user_bets_${walletAddress}`;
-      const data = localStorage.getItem(storageKey);
-      if (!data) return [];
-
-      const bets = JSON.parse(data);
-      // Convert to UserBet format
-      return bets.map((bet: any) => ({
-        ...bet,
-        placedAt: new Date(bet.placedAt),
-        resolvedAt: bet.resolvedAt ? new Date(bet.resolvedAt) : undefined
-      }));
-    } catch (error) {
-      console.error('Error loading bets from storage:', error);
-      return [];
-    }
-  };
-
-  // CRITICAL: Sync bets with market resolution status on mount
-  // This catches any bets that missed resolution updates
+  // Optional: Sync resolution status for any bets that may have been resolved
   useEffect(() => {
     const syncBetsWithResolutions = async () => {
-      if (isSyncing) return;
+      if (isSyncing || userBets.length === 0) return;
 
       setIsSyncing(true);
       try {
-        // Get wallet address from localStorage or context
+        // Get wallet address from the first bet's storage key pattern
         const walletKeys = Object.keys(localStorage).filter(key => key.startsWith('user_bets_'));
         if (walletKeys.length === 0) {
-          console.log('📊 No bets found in portfolio');
-          setLocalBets([]);
+          console.log('📊 Portfolio loaded from blockchain - no localStorage sync needed');
           return;
         }
 
-        // Use the first wallet found (in a real app, this would come from wallet context)
         const walletAddress = walletKeys[0].replace('user_bets_', '');
-
-        console.log('🔄 Syncing portfolio bets with market resolutions...');
+        console.log('🔄 Checking for any missed market resolutions...');
         const { betResolutionService } = await import('../../utils/betResolutionService');
         const updatedCount = await betResolutionService.syncBetsWithMarketStatus(walletAddress);
 
         if (updatedCount > 0) {
-          console.log(`✅ Portfolio sync complete: ${updatedCount} bet(s) updated with resolution status`);
-        } else {
-          console.log('✅ Portfolio sync complete: All bets are up to date');
+          console.log(`✅ Found ${updatedCount} bet(s) with updated resolution status`);
         }
-
-        // Reload bets from localStorage after sync
-        const updatedBets = loadBetsFromStorage();
-        setLocalBets(updatedBets);
-
       } catch (error) {
-        console.error('❌ Error syncing portfolio bets:', error);
+        console.error('❌ Error syncing resolution status:', error);
       } finally {
         setIsSyncing(false);
       }
     };
 
-    // Run sync on mount
     syncBetsWithResolutions();
-  }, []); // Empty deps - only run once on mount
-
-  // Update local bets when prop changes (new bet placed)
-  useEffect(() => {
-    if (propUserBets.length > localBets.length) {
-      setLocalBets(propUserBets);
-    }
-  }, [propUserBets, localBets.length]);
+  }, [userBets.length]); // Re-run when userBets count changes
 
   // Load NFT listing status for all NFTs (NFTs are auto-minted on bet placement)
   useEffect(() => {
@@ -374,7 +329,7 @@ export default function BettingPortfolio({ userBalance, userBets: propUserBets }
     }
   };
 
-  // Update bet claim status in localStorage
+  // Update bet claim status in localStorage (for caching purposes)
   const updateBetClaimStatus = (betId: string, claimed: boolean) => {
     try {
       const walletKeys = Object.keys(localStorage).filter(key => key.startsWith('user_bets_'));
@@ -393,14 +348,6 @@ export default function BettingPortfolio({ userBalance, userBets: propUserBets }
       );
 
       localStorage.setItem(storageKey, JSON.stringify(updatedBets));
-
-      // Update local state
-      setLocalBets(prev => prev.map(bet =>
-        bet.id === betId
-          ? { ...bet, winningsClaimed: claimed, claimedAt: new Date() }
-          : bet
-      ));
-
       console.log(`✅ Updated claim status for bet ${betId}: claimed=${claimed}`);
     } catch (error) {
       console.error('Error updating bet claim status:', error);
@@ -410,7 +357,8 @@ export default function BettingPortfolio({ userBalance, userBets: propUserBets }
   // Calculate portfolio stats
   const totalCastAmount = userBets.reduce((sum, cast) => sum + cast.amount, 0);
   const activeCasts = userBets.filter(cast => cast.status === 'active');
-  const resolvedCasts = userBets.filter(cast => cast.status === 'won' || cast.status === 'lost');
+  const pendingCasts = userBets.filter(cast => cast.status === 'pending'); // Expired but not resolved
+  const resolvedCasts = userBets.filter(cast => cast.status === 'won' || cast.status === 'lost' || cast.status === 'pending');
   const wonCasts = userBets.filter(cast => cast.status === 'won');
   const unclaimedWinnings = wonCasts.filter(cast => !cast.winningsClaimed && cast.marketContractAddress);
   const totalWinnings = wonCasts.reduce((sum, cast) => sum + (cast.actualWinning || 0), 0);
@@ -430,6 +378,8 @@ export default function BettingPortfolio({ userBalance, userBets: propUserBets }
         return <XCircle className="h-4 w-4 text-red-500" />;
       case 'active':
         return <Clock className="h-4 w-4 text-yellow-500" />;
+      case 'pending':
+        return <Clock className="h-4 w-4 text-orange-500" />;
       default:
         return <AlertTriangle className="h-4 w-4 text-muted-foreground" />;
     }
@@ -443,6 +393,8 @@ export default function BettingPortfolio({ userBalance, userBets: propUserBets }
         return <Badge className="bg-red-500/20 text-red-500 border-red-500/30">LOST</Badge>;
       case 'active':
         return <Badge className="bg-yellow-500/20 text-yellow-500 border-yellow-500/30">ACTIVE</Badge>;
+      case 'pending':
+        return <Badge className="bg-orange-500/20 text-orange-500 border-orange-500/30">AWAITING RESOLUTION</Badge>;
       default:
         return <Badge variant="outline">PENDING</Badge>;
     }
@@ -784,27 +736,34 @@ export default function BettingPortfolio({ userBalance, userBets: propUserBets }
                         </div>
                         <div>
                           <span className="text-muted-foreground">Result:</span>
-                          <div className={`font-semibold ${cast.status === 'won' ? 'text-green-500' : 'text-red-500'}`}>
-                            {cast.status === 'won' ? 'CORRECT' : 'INCORRECT'}
+                          <div className={`font-semibold ${
+                            cast.status === 'won' ? 'text-green-500' :
+                            cast.status === 'lost' ? 'text-red-500' : 'text-orange-500'
+                          }`}>
+                            {cast.status === 'won' ? 'CORRECT' :
+                             cast.status === 'lost' ? 'INCORRECT' : 'PENDING'}
                           </div>
                         </div>
                         <div>
                           <span className="text-muted-foreground">P&L:</span>
                           <div className={`font-semibold ${
-                            cast.status === 'won' ? 'text-green-500' : 'text-red-500'
+                            cast.status === 'won' ? 'text-green-500' :
+                            cast.status === 'lost' ? 'text-red-500' : 'text-orange-500'
                           }`}>
-                            {cast.status === 'won' ? 
-                              `+${(cast.actualWinning! - cast.amount).toFixed(3)} CAST` :
-                              `-${cast.amount.toFixed(3)} CAST`
+                            {cast.status === 'won' ?
+                              `+${((cast.actualWinning || 0) - cast.amount).toFixed(3)} CAST` :
+                              cast.status === 'lost' ?
+                              `-${cast.amount.toFixed(3)} CAST` :
+                              'Awaiting resolution'
                             }
                           </div>
                         </div>
                       </div>
                     </div>
-                    
+
                     <div className="flex flex-col gap-2">
-                      {/* AUTO-PAYOUT: Show payout status instead of claim button */}
-                      {cast.status === 'won' && (
+                      {/* AUTO-PAYOUT: Show payout status for won bets */}
+                      {cast.status === 'won' && cast.actualWinning && cast.actualWinning > 0 && (
                         <div className="bg-green-50 dark:bg-green-950/20 border border-green-200 dark:border-green-800 rounded-lg p-3">
                           <div className="flex items-start gap-2">
                             <CheckCircle className="h-5 w-5 text-green-600 flex-shrink-0 mt-0.5" />
@@ -813,7 +772,7 @@ export default function BettingPortfolio({ userBalance, userBets: propUserBets }
                                 Won: {cast.actualWinning?.toFixed(3)} CAST
                               </div>
                               <div className="text-xs text-green-700 dark:text-green-300 mt-0.5">
-                                Auto-paid {cast.resolvedAt ? formatTimeAgo(cast.resolvedAt) : 'on resolution'}
+                                ✅ Auto-paid to your wallet
                               </div>
                               {cast.blockchainTxId && (
                                 <a
@@ -822,9 +781,43 @@ export default function BettingPortfolio({ userBalance, userBets: propUserBets }
                                   rel="noopener noreferrer"
                                   className="text-xs text-green-600 hover:text-green-800 underline mt-1 inline-block"
                                 >
-                                  View transaction ↗
+                                  View payout TX ↗
                                 </a>
                               )}
+                            </div>
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Show pending resolution info */}
+                      {cast.status === 'pending' && (
+                        <div className="bg-orange-50 dark:bg-orange-950/20 border border-orange-200 dark:border-orange-800 rounded-lg p-3">
+                          <div className="flex items-start gap-2">
+                            <Clock className="h-5 w-5 text-orange-600 flex-shrink-0 mt-0.5" />
+                            <div>
+                              <div className="font-semibold text-orange-900 dark:text-orange-100">
+                                Awaiting Resolution
+                              </div>
+                              <div className="text-xs text-orange-700 dark:text-orange-300 mt-0.5">
+                                Market expired, outcome pending
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Show lost info */}
+                      {cast.status === 'lost' && (
+                        <div className="bg-red-50 dark:bg-red-950/20 border border-red-200 dark:border-red-800 rounded-lg p-3">
+                          <div className="flex items-start gap-2">
+                            <XCircle className="h-5 w-5 text-red-600 flex-shrink-0 mt-0.5" />
+                            <div>
+                              <div className="font-semibold text-red-900 dark:text-red-100">
+                                Lost: -{cast.amount.toFixed(3)} CAST
+                              </div>
+                              <div className="text-xs text-red-700 dark:text-red-300 mt-0.5">
+                                Your prediction was incorrect
+                              </div>
                             </div>
                           </div>
                         </div>

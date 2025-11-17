@@ -631,11 +631,11 @@ export default function MarketPage({ market, onPlaceBet, userBalance, onBack, wa
               <div className="grid grid-cols-2 gap-3">
                 <div className={`text-center p-4 rounded-lg border ${isMarketExpired() ? 'bg-gray-500/10 border-gray-500/20 opacity-60' : 'bg-primary/10 border-primary/20'}`}>
                   <div className="text-sm mb-1 text-muted-foreground">{t('truthYes')}</div>
-                  <div className={`text-2xl font-bold ${isMarketExpired() ? 'text-gray-500' : 'text-primary'}`}>{market.yesOdds.toFixed(2)}x</div>
+                  <div className={`text-2xl font-bold ${isMarketExpired() ? 'text-gray-500' : 'text-primary'}`}>{(100 / market.yesOdds).toFixed(1)}%</div>
                 </div>
                 <div className={`text-center p-4 rounded-lg border ${isMarketExpired() ? 'bg-gray-500/10 border-gray-500/20 opacity-60' : 'bg-secondary/10 border-secondary/20'}`}>
                   <div className="text-sm mb-1 text-muted-foreground">{t('truthNo')}</div>
-                  <div className={`text-2xl font-bold ${isMarketExpired() ? 'text-gray-500' : 'text-secondary'}`}>{market.noOdds.toFixed(2)}x</div>
+                  <div className={`text-2xl font-bold ${isMarketExpired() ? 'text-gray-500' : 'text-secondary'}`}>{(100 / market.noOdds).toFixed(1)}%</div>
                 </div>
               </div>
 
