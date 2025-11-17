@@ -460,7 +460,7 @@ npm run typecheck    # TypeScript validation
 
 ## Why This Matters
 
-53 million Africans use cryptocurrency. But prediction markets? Zero accessibility.
+54 million Africans use cryptocurrency. But prediction markets? Zero accessibility.
 
 **The problem isn't demand.** Nigeria processed $59B in crypto volume. Sub-Saharan Africa hit $205B in on-chain value with 52% YoY growth. The problem is **cost barriers**.
 
@@ -475,3 +475,4 @@ This isn't just a cost optimization. **It's unlocking prediction markets for 53 
 **Prediction markets for the next generation. Built by Africa. For Africa.**
 
 *Seedify x BNB Chain Prediction Markets Hackathon 2025*
+
