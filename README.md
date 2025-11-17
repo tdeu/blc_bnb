@@ -2,7 +2,7 @@
 
 > **🏆 Seedify x BNB Chain Prediction Markets Hackathon 2025**
 >
-> **53 million African crypto users. Zero access to prediction markets. Until now.**
+> **54 million African crypto users. Zero access to prediction markets. Until now.**
 
 ---
 
@@ -475,4 +475,5 @@ This isn't just a cost optimization. **It's unlocking prediction markets for 53 
 **Prediction markets for the next generation. Built by Africa. For Africa.**
 
 *Seedify x BNB Chain Prediction Markets Hackathon 2025*
+
 
