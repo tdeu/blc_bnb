@@ -16,7 +16,7 @@ African crypto adoption is exploding. Nigeria alone processed **$59 billion in c
 |----------|----------------|-----------------|-------------|
 | **Polymarket** (Polygon) | $3-9 | $50-300 (UMA Oracle) | $100+ bettors |
 | **Ethereum Markets** | $65-350 | $500+ | Crypto whales only |
-| **African Reality** | **$1-5 trades** | **Need <$1 overhead** | **53M crypto users** |
+| **African Reality** | **$1-5 trades** | **Need <$1 overhead** | **54M crypto users** |
 
 **The math doesn't work.** When 84% of African transactions are mobile-based and average bet size is $1-10, traditional platforms charge more in fees than the actual bet.
 
@@ -475,6 +475,7 @@ This isn't just a cost optimization. **It's unlocking prediction markets for 54 
 **Prediction markets for the next generation. Built by Africa. For Africa.**
 
 *Seedify x BNB Chain Prediction Markets Hackathon 2025*
+
 
 
 
