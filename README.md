@@ -386,7 +386,7 @@ Admin panel uses multi-dimensional analysis for ambiguous markets:
 - **Admin panel**: Three-signal confidence scoring
 
 ### Social Impact
-- **Targets 53M African crypto users** (realistic, not inflated)
+- **Targets 54M African crypto users** (realistic, not inflated)
 - **Enables $1-10 micro-bets** (84% of African crypto is retail)
 - **100x cost reduction** makes niche markets viable
 - **Built by African team** understanding local needs
@@ -475,6 +475,7 @@ This isn't just a cost optimization. **It's unlocking prediction markets for 54 
 **Prediction markets for the next generation. Built by Africa. For Africa.**
 
 *Seedify x BNB Chain Prediction Markets Hackathon 2025*
+
 
 
 
