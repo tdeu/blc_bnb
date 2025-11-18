@@ -49,7 +49,7 @@ BlockCast slashes resolution costs from **$500 to $0.02** using dual-AI verifica
 - **Enables niche markets**: $0.02 resolution makes "$5 bet on local sports" economically viable
 - **Real-time resolution**: 2-3 minutes vs 24-48 hours (UMA)
 - **IPFS-backed disputes**: Decentralized evidence storage, tamper-proof
-- **Targets 53M users**: Africa's crypto population (2025 projection)
+- **Targets 54M users**: Africa's crypto population (2025 projection)
 
 ---
 
@@ -475,6 +475,7 @@ This isn't just a cost optimization. **It's unlocking prediction markets for 54 
 **Prediction markets for the next generation. Built by Africa. For Africa.**
 
 *Seedify x BNB Chain Prediction Markets Hackathon 2025*
+
 
 
 
