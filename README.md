@@ -468,12 +468,13 @@ When your average bet is $1-10 and traditional platforms charge $3-350 in fees, 
 
 **BlockCast fixes this.** AI resolution at $0.02 (not $500) + BNB Chain gas fees = $0.80 total journey. That's **100x cheaper** than alternatives. Suddenly, "Will my local team win?" or "Will BNB hit $700?" becomes viable.
 
-This isn't just a cost optimization. **It's unlocking prediction markets for 53 million users who were completely excluded.**
+This isn't just a cost optimization. **It's unlocking prediction markets for 54 million users who were completely excluded.**
 
 ---
 
 **Prediction markets for the next generation. Built by Africa. For Africa.**
 
 *Seedify x BNB Chain Prediction Markets Hackathon 2025*
+
 
 
