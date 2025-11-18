@@ -4,6 +4,9 @@
 >
 > **54 million African crypto users. Zero access to prediction markets. Until now.**
 
+> Video demo https://youtu.be/n4-4Ci-vhlQ
+
+
 ---
 
 ## The Problem: Cost Barriers Exclude Growing Markets
@@ -472,6 +475,7 @@ This isn't just a cost optimization. **It's unlocking prediction markets for 54 
 **Prediction markets for the next generation. Built by Africa. For Africa.**
 
 *Seedify x BNB Chain Prediction Markets Hackathon 2025*
+
 
 
 
