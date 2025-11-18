@@ -38,7 +38,7 @@ export const mockAIResponses = {
 export const welcomeBonus = {
   amount: 2,
   currency: 'HBAR',
-  message: 'Welcome to Blockcast! Here\'s 2 HBAR to get you started with truth verification! 🎉',
+  message: 'Welcome to Blockcast! Here\'s 2 HBAR to get you started with truth verification!',
   icon: 'gift'
 };
 
@@ -48,63 +48,47 @@ export const defaultVerificationResult = (claim: string): Omit<VerificationResul
   claim,
   sources: [
     {
-      title: "Reuters Fact Check",
-      url: "https://reuters.com/fact-check",
-      credibility: 96
+      name: 'Academic Research',
+      credibility: 95,
+      url: '#'
     },
     {
-      title: "Associated Press Verification",
-      url: "https://apnews.com/factcheck",
-      credibility: 94
+      name: 'Scientific Journals',
+      credibility: 92,
+      url: '#'
     },
     {
-      title: "PolitiFact Truth-O-Meter",
-      url: "https://politifact.com",
-      credibility: 88
-    },
-    {
-      title: "Snopes Investigation",
-      url: "https://snopes.com",
-      credibility: 85
+      name: 'Expert Analysis',
+      credibility: 88,
+      url: '#'
     }
-  ],
-  blockchainHash: `0x${Math.random().toString(16).substr(2, 64)}`,
-  timestamp: new Date(),
-  verificationTime: Math.floor(Math.random() * 3000) + 1000
+  ]
 });
 
-// Default user stats for new users
-export const defaultUserStats = {
-  balance: 5.234,
-  totalVerifications: 0,
-  successfulVerifications: 0,
-  earnedRewards: 0
-};
-
-// Loading messages for verification process
-export const verificationLoadingMessages = [
-  "🔍 Scanning global news sources...",
-  "🤖 AI analyzing claim credibility...", 
-  "📊 Cross-referencing with fact-checkers...",
-  "🌍 Checking African news outlets...",
-  "⚡ Blockchain verification in progress...",
-  "✨ Finalizing truth assessment..."
-];
-
-// Mock verification history for demo
-export const mockVerificationHistory: VerificationResult[] = [
+// Mock verification history for demo purposes
+export const mockVerificationHistory = [
   {
-    id: 'hist-1',
-    claim: 'Nigeria will achieve 25% inflation by August 2025',
-    verdict: 'mixed',
-    confidence: 73,
-    aiAnalysis: 'Economic indicators show mixed signals for Nigerian inflation targets.',
-    sources: [
-      { title: "Central Bank of Nigeria", url: "https://cbn.gov.ng", credibility: 98 },
-      { title: "Reuters Africa", url: "https://reuters.com", credibility: 96 }
-    ],
-    blockchainHash: '0xabc123...',
-    timestamp: new Date('2025-01-15'),
-    verificationTime: 2340
+    id: 'v1',
+    claim: 'Coffee consumption is linked to reduced heart disease risk',
+    verdict: 'true' as const,
+    confidence: 82,
+    date: new Date(Date.now() - 86400000),
+    stake: 100
+  },
+  {
+    id: 'v2',
+    claim: 'The Great Wall of China is visible from space',
+    verdict: 'false' as const,
+    confidence: 95,
+    date: new Date(Date.now() - 172800000),
+    stake: 50
+  },
+  {
+    id: 'v3',
+    claim: 'Humans only use 10% of their brain',
+    verdict: 'false' as const,
+    confidence: 98,
+    date: new Date(Date.now() - 259200000),
+    stake: 75
   }
 ];

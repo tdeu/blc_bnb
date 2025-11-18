@@ -75,7 +75,6 @@ const isValidPage = (tab: string): boolean => {
 
 const shouldShowOnboarding = (): boolean => {
   const onboarded = localStorage.getItem('blockcast_onboarded');
-  console.log('🔍 Onboarding check:', { onboarded, shouldShow: !onboarded });
   // Force skip onboarding - it's causing issues
   localStorage.setItem('blockcast_onboarded', 'true');
   return false;
@@ -100,8 +99,6 @@ const toggleDarkMode = (current: boolean): boolean => {
 };
 
 export default function App() {
-  console.log('🔥 APP COMPONENT RENDER - timestamp:', Date.now());
-  
   // Restore all the original state
   const [currentTab, setCurrentTab] = useState('markets');
   const [isDarkMode, setIsDarkMode] = useState(true);
@@ -136,7 +133,6 @@ export default function App() {
   // Sync blockchain positions with local state
   useEffect(() => {
     if (blockchainUserBets.length > 0) {
-      console.log(`📊 Loaded ${blockchainUserBets.length} positions from blockchain for wallet ${walletConnection?.address}`);
       setUserBets(blockchainUserBets);
     }
   }, [blockchainUserBets, walletConnection?.address]);

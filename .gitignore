@@ -1,6 +1,5 @@
 # Dependencies
 node_modules
-package-lock.json
 
 # Environment variables (contains API keys and private keys!)
 .env
@@ -70,6 +69,9 @@ uploads/
 
 # Archive (old files)
 archive/
+
+# Claude AI settings (local development)
+.claude/
 
 # Temporary deployment scripts (already deployed)
 scripts/deploy-bsc-tokenomics.cjs

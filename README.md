@@ -318,13 +318,11 @@ Admin panel uses multi-dimensional analysis for ambiguous markets:
 
 - **Camille** (Ghana) - Project Owner
   - Product strategy, user research
-  - African crypto market expert
+  - African market expert
 
 - **Mohammed** (Nigeria) - Designer
   - UI/UX design, mobile-first optimization
   - Accessibility specialist
-
-**Contact**: contact@blockcast.live
 
 ---
 
@@ -372,7 +370,6 @@ Admin panel uses multi-dimensional analysis for ambiguous markets:
 ✅ **Multi-Stage Predictions**: Evidence collection → AI → Community → Admin
 
 ### Technical Excellence
-- **15,000+ lines of production code**
 - **6 deployed smart contracts** with 200-run optimization
 - **80%+ test coverage** on core contract logic
 - **50+ testnet markets** created, 20+ AI-resolved successfully
@@ -417,7 +414,7 @@ Admin panel uses multi-dimensional analysis for ambiguous markets:
 
 ```bash
 # 1. Clone repository
-git clone https://github.com/yourusername/blockcast_new
+git clone https://github.com/tdeu/blc_bnb
 cd blockcast_new
 
 # 2. Install dependencies
