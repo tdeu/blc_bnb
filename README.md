@@ -474,6 +474,8 @@ This isn't just a cost optimization. **It's unlocking prediction markets for 54 
 
 ---
 
+---
+
 **Prediction markets for the next generation. Built by Africa. For Africa.**
 
 *Seedify x BNB Chain Prediction Markets Hackathon 2025*

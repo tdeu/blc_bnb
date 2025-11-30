@@ -492,7 +492,7 @@ export default function LocalCurrencyWallet() {
                   className="w-full h-10"
                 >
                   <Wallet className="h-4 w-4 mr-2" />
-                  Fund Wallet with {calculateHBAR()} HBAR
+                  Fund Wallet with {calculateHBAR()} BNB
                 </Button>
 
                 {/* Help Section - Compact */}
