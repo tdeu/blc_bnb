@@ -6,26 +6,38 @@ import { Separator } from '../ui/separator';
 import { Alert, AlertDescription } from '../ui/alert';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '../ui/tabs';
 import { Input } from '../ui/input';
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '../ui/collapsible';
 import {
   Wallet,
   TrendingUp,
+  TrendingDown,
   DollarSign,
   PieChart,
   Activity,
   RefreshCw,
   AlertTriangle,
   CheckCircle2,
-  ArrowUpRight,
   Coins,
   Users,
-  Zap,
   ShoppingCart,
   Scale,
   Eye,
-  Send
+  Send,
+  Settings,
+  ChevronDown
 } from 'lucide-react';
 import { treasuryService as castTreasuryService, TreasuryStats, CastPurchase } from '../../services/treasuryService';
 import { treasuryService as protocolTreasuryService, TreasuryBalance, FeeCollection } from '../../utils/treasuryService';
+import {
+  getPriceConfig,
+  setPriceConfig,
+  PriceConfig,
+  formatUSD,
+  bnbToUSD,
+  castToUSD,
+  calculateTVL,
+  getTimeSinceUpdate
+} from '../../utils/priceConfig';
 import { supabase } from '../../utils/supabase';
 import { toast } from 'sonner';
 
@@ -48,11 +60,29 @@ export default function UnifiedTreasuryDashboard({ isAdmin }: UnifiedTreasuryDas
     feeGrowth: '0'
   });
 
+  // New metrics states
+  const [activeBettors, setActiveBettors] = useState(0);
+  const [todayTransactions, setTodayTransactions] = useState(0);
+  const [change24h, setChange24h] = useState({ tvlChange: 0, revenueChange: 0, transactionChange: 0 });
+
+  // TVL = CAST locked in active markets (real liquidity at stake)
+  const [lockedInMarkets, setLockedInMarkets] = useState<{ totalLocked: string; marketCount: number; marketDetails: Array<{id: string, claim: string, reserve: string}> }>({ totalLocked: '0', marketCount: 0, marketDetails: [] });
+  const [last24hTxns, setLast24hTxns] = useState(0);
+
+  // Price config state
+  const [priceConfig, setPriceConfigState] = useState<PriceConfig>(getPriceConfig());
+  const [newBnbPrice, setNewBnbPrice] = useState(priceConfig.bnbPriceUSD.toString());
+  const [priceConfigOpen, setPriceConfigOpen] = useState(false);
+
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState('overview');
   const [withdrawing, setWithdrawing] = useState(false);
   const [withdrawAmount, setWithdrawAmount] = useState('');
+
+  // State for total transactions and markets count
+  const [totalTransactions, setTotalTransactions] = useState(0);
+  const [totalMarkets, setTotalMarkets] = useState(0);
 
   useEffect(() => {
     if (isAdmin) {
@@ -68,14 +98,38 @@ export default function UnifiedTreasuryDashboard({ isAdmin }: UnifiedTreasuryDas
       // Initialize CAST treasury service
       await castTreasuryService.initialize();
 
-      // Load CAST token data
-      const [stats, purchases] = await Promise.all([
+      // Load core CAST token data (these are essential)
+      const [stats, purchases, changes24h] = await Promise.all([
         castTreasuryService.getTreasuryStats(),
-        castTreasuryService.getRecentPurchases(20)
+        castTreasuryService.getRecentPurchases(20),
+        castTreasuryService.get24hChangeStats()
       ]);
 
       setCastStats(stats);
       setCastPurchases(purchases);
+      setChange24h(changes24h);
+
+      // Load additional metrics separately (these can fail without breaking the dashboard)
+      try {
+        const lockedData = await castTreasuryService.getTotalLockedInMarkets();
+        setLockedInMarkets(lockedData);
+      } catch (e) {
+        console.warn('Failed to load locked markets data:', e);
+      }
+
+      try {
+        const bettorsData = await castTreasuryService.getUniqueBettorsFromContracts();
+        setActiveBettors(bettorsData.count);
+      } catch (e) {
+        console.warn('Failed to load bettors data:', e);
+      }
+
+      try {
+        const txns24h = await castTreasuryService.getLast24hTransactionCount();
+        setLast24hTxns(txns24h);
+      } catch (e) {
+        console.warn('Failed to load 24h transaction count:', e);
+      }
 
       // Load protocol fee data
       const [balanceData, historyData, analyticsData] = await Promise.all([
@@ -119,6 +173,17 @@ export default function UnifiedTreasuryDashboard({ isAdmin }: UnifiedTreasuryDas
   const handleRefresh = () => {
     loadAllTreasuryData();
     toast.success('Treasury data refreshed!');
+  };
+
+  const handleUpdatePrice = () => {
+    const price = parseFloat(newBnbPrice);
+    if (isNaN(price) || price <= 0) {
+      toast.error('Please enter a valid BNB price');
+      return;
+    }
+    const updated = setPriceConfig({ bnbPriceUSD: price });
+    setPriceConfigState(updated);
+    toast.success(`BNB price updated to $${price}`);
   };
 
   const handleWithdrawBNB = async () => {
@@ -200,14 +265,29 @@ export default function UnifiedTreasuryDashboard({ isAdmin }: UnifiedTreasuryDas
     );
   }
 
-  // State for total transactions and markets count
-  const [totalTransactions, setTotalTransactions] = useState(0);
-  const [totalMarkets, setTotalMarkets] = useState(0);
-
   // Calculate combined metrics
   const totalBnbRevenue = parseFloat(castStats?.bnbRevenue || '0');
+  const totalCastSupply = parseFloat(castStats?.totalSupply || '0');
   const totalCastFees = parseFloat(protocolAnalytics.totalValue);
-  const totalRevenue = totalBnbRevenue + totalCastFees;
+  const castLockedInMarkets = parseFloat(lockedInMarkets.totalLocked || '0');
+  const circulatingCast = totalCastSupply - castLockedInMarkets;
+
+  // Calculate TVL using ONLY the CAST locked in active markets (real liquidity at stake)
+  // TVL = CAST locked in markets × CAST price in USD
+  const tvlData = calculateTVL(0, castLockedInMarkets, priceConfig); // 0 BNB since we only count locked CAST as TVL
+
+  // Helper to render change indicator
+  const ChangeIndicator = ({ value }: { value: number }) => {
+    if (value === 0) return <span className="text-muted-foreground text-xs">--</span>;
+    const isPositive = value > 0;
+    return (
+      <span className={`text-xs flex items-center gap-0.5 ${isPositive ? 'text-green-600' : 'text-red-600'}`}>
+        {isPositive ? <TrendingUp className="h-3 w-3" /> : <TrendingDown className="h-3 w-3" />}
+        {isPositive ? '+' : ''}{value.toFixed(1)}%
+      </span>
+    );
+  };
+
 
   return (
     <div className="space-y-6">
@@ -216,10 +296,10 @@ export default function UnifiedTreasuryDashboard({ isAdmin }: UnifiedTreasuryDas
         <div>
           <h2 className="text-2xl font-bold flex items-center gap-2">
             <Wallet className="h-6 w-6 text-blue-500" />
-            Unified Treasury Dashboard
+            Treasury Dashboard
           </h2>
           <p className="text-muted-foreground mt-1">
-            Complete overview of CAST token distribution, token sales revenue, and protocol fees
+            Quick health check at a glance
           </p>
         </div>
         <Button
@@ -239,119 +319,215 @@ export default function UnifiedTreasuryDashboard({ isAdmin }: UnifiedTreasuryDas
         </Alert>
       )}
 
-      {/* Top-Level Metrics */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
-        <Card>
+      {/* Hero Metrics - Row 1 (3 large cards) */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        {/* TVL Card - Shows CAST locked in active markets */}
+        <Card className="border-2">
           <CardContent className="pt-6">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm font-medium text-muted-foreground">Total CAST Supply</p>
-                <p className="text-2xl font-bold text-blue-600">
-                  {castStats ? `${(parseFloat(castStats.totalSupply) / 1000000).toFixed(1)}M / ${(parseFloat(castStats.maxSupply) / 1000000).toFixed(0)}M` : '0 / 100M'}
+                <p className="text-sm font-medium text-muted-foreground flex items-center gap-1">
+                  <DollarSign className="h-4 w-4" />
+                  Total Value Locked (TVL)
                 </p>
+                <p className="text-3xl font-bold text-blue-600 mt-1">
+                  {formatUSD(tvlData.tvlUSD)}
+                </p>
+                <div className="flex items-center gap-2 mt-2">
+                  <ChangeIndicator value={change24h.tvlChange} />
+                  <span className="text-xs text-muted-foreground">(24h)</span>
+                </div>
                 <p className="text-xs text-muted-foreground mt-1">
-                  {castStats ? `${castStats.supplyUtilization.toFixed(1)}% of max supply` : 'Current / Maximum'}
+                  {castLockedInMarkets.toLocaleString()} CAST in {lockedInMarkets.marketCount} markets
                 </p>
-                <a
-                  href="https://testnet.bscscan.com/token/0x8B84B21AC2EB9C37EfaD196d99088Df823567e81"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="text-xs text-blue-600 hover:text-blue-800 underline mt-1 inline-block"
-                >
-                  View on BscScan →
-                </a>
               </div>
-              <div className="w-12 h-12 rounded-full bg-blue-500 flex items-center justify-center">
-                <Coins className="h-6 w-6 text-white" />
+              <div className="w-14 h-14 rounded-full bg-blue-500 flex items-center justify-center">
+                <DollarSign className="h-7 w-7 text-white" />
               </div>
             </div>
           </CardContent>
         </Card>
 
-        <Card>
+        {/* Token Sales Revenue Card */}
+        <Card className="border-2">
           <CardContent className="pt-6">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm font-medium text-muted-foreground">Token Sales Revenue</p>
-                <p className="text-2xl font-bold text-green-600">
+                <p className="text-sm font-medium text-muted-foreground flex items-center gap-1">
+                  <ShoppingCart className="h-4 w-4" />
+                  Token Sales
+                </p>
+                <p className="text-3xl font-bold text-green-600 mt-1">
                   {totalBnbRevenue.toFixed(4)} BNB
                 </p>
-                <p className="text-xs text-muted-foreground mt-1">
-                  BNB collected from users buying CAST
+                <p className="text-lg text-green-500">
+                  ~{formatUSD(bnbToUSD(totalBnbRevenue, priceConfig))}
                 </p>
-                <a
-                  href="https://testnet.bscscan.com/address/0x54644FD3576720d16ff48Ea7E0545cb1D772D876"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="text-xs text-green-600 hover:text-green-800 underline mt-1 inline-block"
-                >
-                  Treasury Contract →
-                </a>
+                <p className="text-xs text-muted-foreground mt-1">
+                  From {castStats?.totalPurchases || 0} CAST purchases
+                </p>
               </div>
-              <div className="w-12 h-12 rounded-full bg-green-500 flex items-center justify-center">
-                <DollarSign className="h-6 w-6 text-white" />
+              <div className="w-14 h-14 rounded-full bg-green-500 flex items-center justify-center">
+                <ShoppingCart className="h-7 w-7 text-white" />
               </div>
             </div>
           </CardContent>
         </Card>
 
-        <Card>
+        {/* Protocol Fees Card (2% from resolved markets) */}
+        <Card className="border-2">
           <CardContent className="pt-6">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm font-medium text-muted-foreground">Protocol Fees</p>
-                <p className="text-2xl font-bold text-purple-600">
-                  {totalCastFees.toFixed(2)} CAST
+                <p className="text-sm font-medium text-muted-foreground flex items-center gap-1">
+                  <Scale className="h-4 w-4" />
+                  Protocol Fees (2%)
+                </p>
+                <p className="text-3xl font-bold text-purple-600 mt-1">
+                  {parseFloat(protocolAnalytics.monthlyFees || '0').toFixed(2)} CAST
+                </p>
+                <p className="text-lg text-purple-500">
+                  ~{formatUSD(castToUSD(parseFloat(protocolAnalytics.monthlyFees || '0'), priceConfig))}
                 </p>
                 <p className="text-xs text-muted-foreground mt-1">
-                  From market resolutions
+                  {feeHistory.length > 0
+                    ? `From ${feeHistory.length} resolved markets`
+                    : 'No markets resolved yet'}
                 </p>
               </div>
-              <div className="w-12 h-12 rounded-full bg-purple-500 flex items-center justify-center">
-                <Scale className="h-6 w-6 text-white" />
+              <div className="w-14 h-14 rounded-full bg-purple-500 flex items-center justify-center">
+                <Scale className="h-7 w-7 text-white" />
               </div>
             </div>
           </CardContent>
         </Card>
 
+      </div>
+
+      {/* Secondary Metrics - Row 2 (4 smaller cards) */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+        {/* CAST Supply - Shows both circulating and locked */}
         <Card>
-          <CardContent className="pt-6">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm font-medium text-muted-foreground">Total Transactions</p>
-                <p className="text-2xl font-bold text-orange-600">
-                  {totalTransactions}
-                </p>
-                <p className="text-xs text-muted-foreground mt-1">
-                  Bets + Markets + Sales + Resolutions
-                </p>
+          <CardContent className="pt-4 pb-4">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-full bg-blue-500 flex items-center justify-center">
+                <Coins className="h-5 w-5 text-white" />
               </div>
-              <div className="w-12 h-12 rounded-full bg-orange-500 flex items-center justify-center">
-                <Activity className="h-6 w-6 text-white" />
+              <div>
+                <p className="text-xs text-muted-foreground">CAST Supply</p>
+                <p className="text-lg font-bold">
+                  {castStats ? `${(parseFloat(castStats.totalSupply) / 1000000).toFixed(2)}M` : '0'}
+                  <span className="text-xs text-muted-foreground font-normal"> / 100M</span>
+                </p>
+                <div className="text-xs text-muted-foreground space-y-0.5">
+                  <p>🔓 {(circulatingCast / 1000000).toFixed(2)}M circulating</p>
+                  <p>🔒 {(castLockedInMarkets / 1000000).toFixed(2)}M in markets</p>
+                </div>
               </div>
             </div>
           </CardContent>
         </Card>
 
+        {/* Active Bettors */}
         <Card>
-          <CardContent className="pt-6">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm font-medium text-muted-foreground">Total Markets</p>
-                <p className="text-2xl font-bold text-indigo-600">
-                  {totalMarkets}
-                </p>
-                <p className="text-xs text-muted-foreground mt-1">
-                  All prediction markets created
-                </p>
+          <CardContent className="pt-4 pb-4">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-full bg-purple-500 flex items-center justify-center">
+                <Users className="h-5 w-5 text-white" />
               </div>
-              <div className="w-12 h-12 rounded-full bg-indigo-500 flex items-center justify-center">
-                <PieChart className="h-6 w-6 text-white" />
+              <div>
+                <p className="text-xs text-muted-foreground">Active Bettors</p>
+                <p className="text-lg font-bold">{activeBettors}</p>
+                <p className="text-xs text-muted-foreground">unique users</p>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* 24h Change */}
+        <Card>
+          <CardContent className="pt-4 pb-4">
+            <div className="flex items-center gap-3">
+              <div className={`w-10 h-10 rounded-full flex items-center justify-center ${change24h.tvlChange >= 0 ? 'bg-green-500' : 'bg-red-500'}`}>
+                {change24h.tvlChange >= 0 ? <TrendingUp className="h-5 w-5 text-white" /> : <TrendingDown className="h-5 w-5 text-white" />}
+              </div>
+              <div>
+                <p className="text-xs text-muted-foreground">24h Change</p>
+                <p className={`text-lg font-bold ${change24h.tvlChange >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                  {change24h.tvlChange >= 0 ? '+' : ''}{change24h.tvlChange.toFixed(1)}%
+                </p>
+                <p className="text-xs text-muted-foreground">TVL movement</p>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Activity - Rolling 24h window */}
+        <Card>
+          <CardContent className="pt-4 pb-4">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-full bg-orange-500 flex items-center justify-center">
+                <Activity className="h-5 w-5 text-white" />
+              </div>
+              <div>
+                <p className="text-xs text-muted-foreground">Activity (24h)</p>
+                <p className="text-lg font-bold">{last24hTxns} txns</p>
+                <p className="text-xs text-muted-foreground">{totalTransactions} all-time</p>
               </div>
             </div>
           </CardContent>
         </Card>
       </div>
+
+      {/* Price Configuration - Collapsible */}
+      <Collapsible open={priceConfigOpen} onOpenChange={setPriceConfigOpen}>
+        <Card>
+          <CollapsibleTrigger asChild>
+            <CardHeader className="cursor-pointer hover:bg-muted/50 transition-colors">
+              <div className="flex items-center justify-between">
+                <CardTitle className="text-sm flex items-center gap-2">
+                  <Settings className="h-4 w-4" />
+                  Price Configuration
+                </CardTitle>
+                <div className="flex items-center gap-2">
+                  <Badge variant="outline" className="text-xs">
+                    BNB: ${priceConfig.bnbPriceUSD}
+                  </Badge>
+                  <span className="text-xs text-muted-foreground">
+                    Updated {getTimeSinceUpdate(priceConfig)}
+                  </span>
+                  <ChevronDown className={`h-4 w-4 transition-transform ${priceConfigOpen ? 'rotate-180' : ''}`} />
+                </div>
+              </div>
+            </CardHeader>
+          </CollapsibleTrigger>
+          <CollapsibleContent>
+            <CardContent className="pt-0">
+              <div className="flex items-center gap-4">
+                <div className="flex-1">
+                  <label className="text-sm text-muted-foreground mb-1 block">BNB Price (USD)</label>
+                  <div className="flex gap-2">
+                    <Input
+                      type="number"
+                      value={newBnbPrice}
+                      onChange={(e) => setNewBnbPrice(e.target.value)}
+                      placeholder="600"
+                      className="max-w-[150px]"
+                    />
+                    <Button onClick={handleUpdatePrice} variant="outline" size="sm">
+                      Update
+                    </Button>
+                  </div>
+                </div>
+                <div className="text-sm text-muted-foreground">
+                  <p>CAST/BNB Rate: <strong>1 CAST = 0.02 BNB</strong></p>
+                  <p>CAST Price: <strong>${(priceConfig.bnbPriceUSD * 0.02).toFixed(2)}</strong></p>
+                </div>
+              </div>
+            </CardContent>
+          </CollapsibleContent>
+        </Card>
+      </Collapsible>
 
       {/* Tabbed Content */}
       <Tabs value={activeTab} onValueChange={setActiveTab}>
@@ -378,19 +554,23 @@ export default function UnifiedTreasuryDashboard({ isAdmin }: UnifiedTreasuryDas
                   <div className="flex items-center justify-between mb-2">
                     <span className="text-sm font-medium">CAST Token Supply</span>
                     <span className="text-sm text-muted-foreground">
-                      {castStats?.supplyUtilization.toFixed(2)}% utilized
+                      {castStats?.supplyUtilization.toFixed(2)}% of max minted
                     </span>
                   </div>
                   <div className="space-y-2">
                     <div className="flex justify-between text-sm">
-                      <span className="text-muted-foreground">Initial Allocation</span>
-                      <span className="font-medium">{castStats ? parseFloat(castStats.initialAllocation).toLocaleString() : '0'} CAST</span>
+                      <span className="text-muted-foreground">Total Supply (Minted)</span>
+                      <span className="font-medium">{totalCastSupply.toLocaleString()} CAST</span>
                     </div>
                     <div className="flex justify-between text-sm">
-                      <span className="text-muted-foreground">Purchased via BuyCAST</span>
-                      <span className="font-medium">{castStats ? parseFloat(castStats.purchasedCast).toFixed(2) : '0'} CAST</span>
+                      <span className="text-muted-foreground">🔓 Circulating (Available)</span>
+                      <span className="font-medium text-green-600">{circulatingCast.toLocaleString()} CAST</span>
                     </div>
                     <div className="flex justify-between text-sm">
+                      <span className="text-muted-foreground">🔒 Locked in Markets (TVL)</span>
+                      <span className="font-medium text-blue-600">{castLockedInMarkets.toLocaleString()} CAST</span>
+                    </div>
+                    <div className="flex justify-between text-sm border-t pt-2 mt-2">
                       <span className="text-muted-foreground">Remaining Mintable</span>
                       <span className="font-medium">{castStats ? parseFloat(castStats.remainingMintable).toLocaleString() : '0'} CAST</span>
                     </div>
@@ -408,14 +588,20 @@ export default function UnifiedTreasuryDashboard({ isAdmin }: UnifiedTreasuryDas
                         <ShoppingCart className="h-4 w-4 text-green-500" />
                         <span className="text-muted-foreground">Token Sales Revenue</span>
                       </div>
-                      <span className="font-medium text-green-600">{totalBnbRevenue.toFixed(4)} BNB</span>
+                      <div className="text-right">
+                        <span className="font-medium text-green-600">{totalBnbRevenue.toFixed(4)} BNB</span>
+                        <span className="text-xs text-muted-foreground ml-1">(~{formatUSD(bnbToUSD(totalBnbRevenue, priceConfig))})</span>
+                      </div>
                     </div>
                     <div className="flex justify-between text-sm">
                       <div className="flex items-center gap-2">
                         <Scale className="h-4 w-4 text-purple-500" />
                         <span className="text-muted-foreground">Protocol Fees</span>
                       </div>
-                      <span className="font-medium text-purple-600">{totalCastFees.toFixed(2)} CAST</span>
+                      <div className="text-right">
+                        <span className="font-medium text-purple-600">{totalCastFees.toFixed(2)} CAST</span>
+                        <span className="text-xs text-muted-foreground ml-1">(~{formatUSD(castToUSD(totalCastFees, priceConfig))})</span>
+                      </div>
                     </div>
                   </div>
                 </div>
@@ -465,7 +651,10 @@ export default function UnifiedTreasuryDashboard({ isAdmin }: UnifiedTreasuryDas
                       </div>
                       <div className="flex justify-between">
                         <span className="text-muted-foreground">Total Supply</span>
-                        <span className="font-medium">{castStats ? parseFloat(castStats.totalSupply).toLocaleString() : '0'} CAST</span>
+                        <div className="text-right">
+                          <span className="font-medium">{castStats ? parseFloat(castStats.totalSupply).toLocaleString() : '0'} CAST</span>
+                          <span className="text-xs text-muted-foreground ml-1">(~{formatUSD(castToUSD(totalCastSupply, priceConfig))})</span>
+                        </div>
                       </div>
                       <div className="flex justify-between">
                         <span className="text-muted-foreground">Initial Allocation</span>
@@ -533,6 +722,7 @@ export default function UnifiedTreasuryDashboard({ isAdmin }: UnifiedTreasuryDas
                   <div className="p-4 bg-green-50 dark:bg-green-900/10 rounded-lg border border-green-200">
                     <p className="text-sm text-muted-foreground mb-1">Total BNB Revenue</p>
                     <p className="text-2xl font-bold text-green-600">{castStats?.bnbRevenue || '0'} BNB</p>
+                    <p className="text-sm text-green-500">~{formatUSD(bnbToUSD(totalBnbRevenue, priceConfig))}</p>
                   </div>
                   <div className="p-4 bg-blue-50 dark:bg-blue-900/10 rounded-lg border border-blue-200">
                     <p className="text-sm text-muted-foreground mb-1">Total Purchases</p>
@@ -541,6 +731,7 @@ export default function UnifiedTreasuryDashboard({ isAdmin }: UnifiedTreasuryDas
                   <div className="p-4 bg-purple-50 dark:bg-purple-900/10 rounded-lg border border-purple-200">
                     <p className="text-sm text-muted-foreground mb-1">CAST Sold</p>
                     <p className="text-2xl font-bold text-purple-600">{castStats ? parseFloat(castStats.purchasedCast).toFixed(2) : '0'}</p>
+                    <p className="text-sm text-purple-500">~{formatUSD(castToUSD(parseFloat(castStats?.purchasedCast || '0'), priceConfig))}</p>
                   </div>
                 </div>
 
@@ -579,7 +770,7 @@ export default function UnifiedTreasuryDashboard({ isAdmin }: UnifiedTreasuryDas
                               {parseFloat(purchase.cast_amount.toString()).toFixed(2)} CAST
                             </p>
                             <p className="text-xs text-muted-foreground">
-                              {parseFloat(purchase.bnb_amount.toString()).toFixed(4)} BNB
+                              {parseFloat(purchase.bnb_amount.toString()).toFixed(4)} BNB (~{formatUSD(bnbToUSD(parseFloat(purchase.bnb_amount.toString()), priceConfig))})
                             </p>
                           </div>
                         </div>
@@ -611,6 +802,7 @@ export default function UnifiedTreasuryDashboard({ isAdmin }: UnifiedTreasuryDas
                   <div className="p-4 bg-purple-50 dark:bg-purple-900/10 rounded-lg border border-purple-200">
                     <p className="text-sm text-muted-foreground mb-1">Total Fees Collected</p>
                     <p className="text-2xl font-bold text-purple-600">{protocolAnalytics.monthlyFees} CAST</p>
+                    <p className="text-sm text-purple-500">~{formatUSD(castToUSD(parseFloat(protocolAnalytics.monthlyFees || '0'), priceConfig))}</p>
                   </div>
                   <div className="p-4 bg-blue-50 dark:bg-blue-900/10 rounded-lg border border-blue-200">
                     <p className="text-sm text-muted-foreground mb-1">Fee Collections</p>
@@ -683,7 +875,7 @@ export default function UnifiedTreasuryDashboard({ isAdmin }: UnifiedTreasuryDas
               <AlertTriangle className="h-4 w-4" />
               <AlertDescription>
                 <strong>Admin only:</strong> This action will withdraw BNB from the Treasury contract to your connected admin wallet.
-                Available balance: <strong>{totalBnbRevenue.toFixed(4)} BNB</strong>
+                Available balance: <strong>{totalBnbRevenue.toFixed(4)} BNB</strong> (~{formatUSD(bnbToUSD(totalBnbRevenue, priceConfig))})
               </AlertDescription>
             </Alert>
 
@@ -711,7 +903,7 @@ export default function UnifiedTreasuryDashboard({ isAdmin }: UnifiedTreasuryDas
 
             {withdrawAmount && parseFloat(withdrawAmount) > 0 && parseFloat(withdrawAmount) <= totalBnbRevenue && (
               <p className="text-sm text-muted-foreground">
-                You will receive <strong>{withdrawAmount} BNB</strong> (~${(parseFloat(withdrawAmount) * 600).toFixed(2)})
+                You will receive <strong>{withdrawAmount} BNB</strong> (~{formatUSD(bnbToUSD(parseFloat(withdrawAmount), priceConfig))})
               </p>
             )}
           </div>
@@ -731,18 +923,18 @@ export default function UnifiedTreasuryDashboard({ isAdmin }: UnifiedTreasuryDas
             <div>
               <h4 className="font-medium mb-2">Revenue Streams</h4>
               <ul className="space-y-1 text-muted-foreground">
-                <li>• <strong>Token Sales</strong>: BNB revenue from CAST token purchases</li>
-                <li>• <strong>Protocol Fees</strong>: 2% CAST fees from market resolutions</li>
-                <li>• <strong>Treasury Contract</strong>: Holds both BNB and CAST</li>
+                <li><strong>Token Sales</strong>: BNB revenue from CAST token purchases</li>
+                <li><strong>Protocol Fees</strong>: 2% CAST fees from market resolutions</li>
+                <li><strong>Treasury Contract</strong>: Holds both BNB and CAST</li>
               </ul>
             </div>
             <div>
               <h4 className="font-medium mb-2">Treasury Usage</h4>
               <ul className="space-y-1 text-muted-foreground">
-                <li>• Platform development and infrastructure</li>
-                <li>• Marketing and growth initiatives</li>
-                <li>• Creator incentives and rewards</li>
-                <li>• Community programs and governance</li>
+                <li>Platform development and infrastructure</li>
+                <li>Marketing and growth initiatives</li>
+                <li>Creator incentives and rewards</li>
+                <li>Community programs and governance</li>
               </ul>
             </div>
           </div>
