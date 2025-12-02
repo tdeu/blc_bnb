@@ -74,7 +74,7 @@ export default function ReportsDashboard() {
 
       // Load all bets to calculate volume
       const { data: allBets } = await supabase
-        .from('bets')
+        .from('market_predictions')
         .select('amount, created_at');
 
       const totalVolume = allBets?.reduce((sum, bet) => sum + parseFloat(bet.amount || '0'), 0) || 0;
@@ -104,7 +104,7 @@ export default function ReportsDashboard() {
       const marketsWithBets = await Promise.all(
         (markets || []).map(async (market) => {
           const { count } = await supabase
-            .from('bets')
+            .from('market_predictions')
             .select('*', { count: 'exact', head: true })
             .eq('market_id', market.id);
 

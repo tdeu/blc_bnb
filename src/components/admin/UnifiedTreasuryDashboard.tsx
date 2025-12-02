@@ -63,10 +63,11 @@ export default function UnifiedTreasuryDashboard({ isAdmin }: UnifiedTreasuryDas
   // New metrics states
   const [activeBettors, setActiveBettors] = useState(0);
   const [todayTransactions, setTodayTransactions] = useState(0);
-  const [change24h, setChange24h] = useState({ tvlChange: 0, revenueChange: 0, transactionChange: 0 });
+  const [change24h, setChange24h] = useState({ tvlChange: 0, tvlAdded24h: 0, revenueChange: 0, revenueAdded24h: 0, transactionChange: 0, txCount24h: 0 });
 
   // TVL = CAST locked in active markets (real liquidity at stake)
   const [lockedInMarkets, setLockedInMarkets] = useState<{ totalLocked: string; marketCount: number; marketDetails: Array<{id: string, claim: string, reserve: string}> }>({ totalLocked: '0', marketCount: 0, marketDetails: [] });
+  const [lockedMarketsLoading, setLockedMarketsLoading] = useState(true);
   const [last24hTxns, setLast24hTxns] = useState(0);
 
   // Price config state
@@ -110,11 +111,14 @@ export default function UnifiedTreasuryDashboard({ isAdmin }: UnifiedTreasuryDas
       setChange24h(changes24h);
 
       // Load additional metrics separately (these can fail without breaking the dashboard)
+      setLockedMarketsLoading(true);
       try {
         const lockedData = await castTreasuryService.getTotalLockedInMarkets();
         setLockedInMarkets(lockedData);
       } catch (e) {
         console.warn('Failed to load locked markets data:', e);
+      } finally {
+        setLockedMarketsLoading(false);
       }
 
       try {
@@ -150,7 +154,7 @@ export default function UnifiedTreasuryDashboard({ isAdmin }: UnifiedTreasuryDas
           { count: purchasesCount },
           { count: resolutionsCount }
         ] = await Promise.all([
-          supabase.from('bets').select('*', { count: 'exact', head: true }),
+          supabase.from('market_predictions').select('*', { count: 'exact', head: true }),
           supabase.from('approved_markets').select('*', { count: 'exact', head: true }),
           supabase.from('cast_purchases').select('*', { count: 'exact', head: true }),
           supabase.from('approved_markets').select('*', { count: 'exact', head: true }).eq('status', 'resolved')
@@ -334,11 +338,17 @@ export default function UnifiedTreasuryDashboard({ isAdmin }: UnifiedTreasuryDas
                   {formatUSD(tvlData.tvlUSD)}
                 </p>
                 <div className="flex items-center gap-2 mt-2">
-                  <ChangeIndicator value={change24h.tvlChange} />
-                  <span className="text-xs text-muted-foreground">(24h)</span>
+                  {change24h.tvlAdded24h > 0 ? (
+                    <span className="text-xs text-green-600 flex items-center gap-0.5">
+                      <TrendingUp className="h-3 w-3" />
+                      +{change24h.tvlAdded24h.toLocaleString()} CAST (24h)
+                    </span>
+                  ) : (
+                    <span className="text-xs text-muted-foreground">No new bets (24h)</span>
+                  )}
                 </div>
                 <p className="text-xs text-muted-foreground mt-1">
-                  {castLockedInMarkets.toLocaleString()} CAST in {lockedInMarkets.marketCount} markets
+                  {lockedMarketsLoading ? <span className="inline-flex items-center gap-1"><RefreshCw className="h-3 w-3 animate-spin" /> Loading markets...</span> : `${castLockedInMarkets.toLocaleString()} CAST in ${lockedInMarkets.marketCount} markets`}
                 </p>
               </div>
               <div className="w-14 h-14 rounded-full bg-blue-500 flex items-center justify-center">
@@ -420,8 +430,8 @@ export default function UnifiedTreasuryDashboard({ isAdmin }: UnifiedTreasuryDas
                   <span className="text-xs text-muted-foreground font-normal"> / 100M</span>
                 </p>
                 <div className="text-xs text-muted-foreground space-y-0.5">
-                  <p>🔓 {(circulatingCast / 1000000).toFixed(2)}M circulating</p>
-                  <p>🔒 {(castLockedInMarkets / 1000000).toFixed(2)}M in markets</p>
+                  <p>🔓 {lockedMarketsLoading ? '...' : `${(circulatingCast / 1000000).toFixed(2)}M`} circulating</p>
+                  <p>🔒 {lockedMarketsLoading ? <span className="inline-flex items-center gap-1"><RefreshCw className="h-3 w-3 animate-spin" /> loading...</span> : `${(castLockedInMarkets / 1000000).toFixed(2)}M in markets`}</p>
                 </div>
               </div>
             </div>
@@ -444,19 +454,21 @@ export default function UnifiedTreasuryDashboard({ isAdmin }: UnifiedTreasuryDas
           </CardContent>
         </Card>
 
-        {/* 24h Change */}
+        {/* 24h Betting Activity */}
         <Card>
           <CardContent className="pt-4 pb-4">
             <div className="flex items-center gap-3">
-              <div className={`w-10 h-10 rounded-full flex items-center justify-center ${change24h.tvlChange >= 0 ? 'bg-green-500' : 'bg-red-500'}`}>
-                {change24h.tvlChange >= 0 ? <TrendingUp className="h-5 w-5 text-white" /> : <TrendingDown className="h-5 w-5 text-white" />}
+              <div className={`w-10 h-10 rounded-full flex items-center justify-center ${change24h.tvlAdded24h > 0 ? 'bg-green-500' : 'bg-gray-400'}`}>
+                {change24h.tvlAdded24h > 0 ? <TrendingUp className="h-5 w-5 text-white" /> : <Activity className="h-5 w-5 text-white" />}
               </div>
               <div>
-                <p className="text-xs text-muted-foreground">24h Change</p>
-                <p className={`text-lg font-bold ${change24h.tvlChange >= 0 ? 'text-green-600' : 'text-red-600'}`}>
-                  {change24h.tvlChange >= 0 ? '+' : ''}{change24h.tvlChange.toFixed(1)}%
+                <p className="text-xs text-muted-foreground">Bets (24h)</p>
+                <p className={`text-lg font-bold ${change24h.tvlAdded24h > 0 ? 'text-green-600' : 'text-muted-foreground'}`}>
+                  {change24h.tvlAdded24h > 0 ? '+' : ''}{change24h.tvlAdded24h.toLocaleString()} CAST
                 </p>
-                <p className="text-xs text-muted-foreground">TVL movement</p>
+                <p className="text-xs text-muted-foreground">
+                  {change24h.tvlChange !== 0 ? `${change24h.tvlChange > 0 ? '+' : ''}${change24h.tvlChange.toFixed(1)}% vs prev 24h` : 'new activity'}
+                </p>
               </div>
             </div>
           </CardContent>
@@ -470,7 +482,7 @@ export default function UnifiedTreasuryDashboard({ isAdmin }: UnifiedTreasuryDas
                 <Activity className="h-5 w-5 text-white" />
               </div>
               <div>
-                <p className="text-xs text-muted-foreground">Activity (24h)</p>
+                <p className="text-xs text-muted-foreground">Transactions (24h)</p>
                 <p className="text-lg font-bold">{last24hTxns} txns</p>
                 <p className="text-xs text-muted-foreground">{totalTransactions} all-time</p>
               </div>
@@ -564,11 +576,11 @@ export default function UnifiedTreasuryDashboard({ isAdmin }: UnifiedTreasuryDas
                     </div>
                     <div className="flex justify-between text-sm">
                       <span className="text-muted-foreground">🔓 Circulating (Available)</span>
-                      <span className="font-medium text-green-600">{circulatingCast.toLocaleString()} CAST</span>
+                      <span className="font-medium text-green-600">{lockedMarketsLoading ? '...' : circulatingCast.toLocaleString()} CAST</span>
                     </div>
                     <div className="flex justify-between text-sm">
                       <span className="text-muted-foreground">🔒 Locked in Markets (TVL)</span>
-                      <span className="font-medium text-blue-600">{castLockedInMarkets.toLocaleString()} CAST</span>
+                      <span className="font-medium text-blue-600">{lockedMarketsLoading ? <span className="inline-flex items-center gap-1"><RefreshCw className="h-3 w-3 animate-spin" /></span> : castLockedInMarkets.toLocaleString()} CAST</span>
                     </div>
                     <div className="flex justify-between text-sm border-t pt-2 mt-2">
                       <span className="text-muted-foreground">Remaining Mintable</span>

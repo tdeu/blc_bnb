@@ -320,9 +320,9 @@ class TreasuryService {
    */
   async getActiveBettorsCount(): Promise<number> {
     try {
-      // Simple approach: just count unique bettors from all bets
+      // Query market_predictions table (where bets are actually stored)
       const { data: allBets, error } = await supabase
-        .from('bets')
+        .from('market_predictions')
         .select('user_address');
 
       if (error) {
@@ -348,16 +348,88 @@ class TreasuryService {
 
   /**
    * Get 24h change statistics for key metrics
-   * Note: Returns 0% if no historical snapshots available
+   * Calculates changes based on bets and purchases from the last 24 hours
+   * Returns both percentage change AND absolute values for better context
    */
   async get24hChangeStats(): Promise<{
     tvlChange: number;
+    tvlAdded24h: number;  // Absolute CAST added in last 24h
     revenueChange: number;
+    revenueAdded24h: number;  // Absolute BNB revenue in last 24h
     transactionChange: number;
+    txCount24h: number;  // Absolute transaction count in last 24h
   }> {
-    // Return default values - historical tracking requires snapshots
-    // This prevents errors if treasury_snapshots table doesn't exist or is empty
-    return { tvlChange: 0, revenueChange: 0, transactionChange: 0 };
+    try {
+      const twentyFourHoursAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
+      const fortyEightHoursAgo = new Date(Date.now() - 48 * 60 * 60 * 1000);
+
+      // Get bets from last 24h and previous 24h to calculate TVL change
+      // Note: Bets are stored in market_predictions table
+      const [{ data: recentBets }, { data: previousBets }] = await Promise.all([
+        supabase
+          .from('market_predictions')
+          .select('amount, created_at')
+          .gte('created_at', twentyFourHoursAgo.toISOString()),
+        supabase
+          .from('market_predictions')
+          .select('amount, created_at')
+          .gte('created_at', fortyEightHoursAgo.toISOString())
+          .lt('created_at', twentyFourHoursAgo.toISOString())
+      ]);
+
+      // Calculate TVL added in last 24h vs previous 24h
+      const recentTvlAdded = recentBets?.reduce((sum, bet) => sum + parseFloat(bet.amount || '0'), 0) || 0;
+      const previousTvlAdded = previousBets?.reduce((sum, bet) => sum + parseFloat(bet.amount || '0'), 0) || 0;
+
+      // Calculate percentage change (avoid division by zero)
+      let tvlChange = 0;
+      if (previousTvlAdded > 0) {
+        tvlChange = ((recentTvlAdded - previousTvlAdded) / previousTvlAdded) * 100;
+      }
+      // Don't show misleading 100% when going from 0 to something
+
+      // Get purchases from last 24h and previous 24h for revenue change
+      const [{ data: recentPurchases }, { data: previousPurchases }] = await Promise.all([
+        supabase
+          .from('cast_purchases')
+          .select('bnb_amount, timestamp')
+          .gte('timestamp', twentyFourHoursAgo.toISOString()),
+        supabase
+          .from('cast_purchases')
+          .select('bnb_amount, timestamp')
+          .gte('timestamp', fortyEightHoursAgo.toISOString())
+          .lt('timestamp', twentyFourHoursAgo.toISOString())
+      ]);
+
+      const recentRevenue = recentPurchases?.reduce((sum, p) => sum + parseFloat(p.bnb_amount || '0'), 0) || 0;
+      const previousRevenue = previousPurchases?.reduce((sum, p) => sum + parseFloat(p.bnb_amount || '0'), 0) || 0;
+
+      let revenueChange = 0;
+      if (previousRevenue > 0) {
+        revenueChange = ((recentRevenue - previousRevenue) / previousRevenue) * 100;
+      }
+
+      // Transaction count change
+      const recentTxCount = (recentBets?.length || 0) + (recentPurchases?.length || 0);
+      const previousTxCount = (previousBets?.length || 0) + (previousPurchases?.length || 0);
+
+      let transactionChange = 0;
+      if (previousTxCount > 0) {
+        transactionChange = ((recentTxCount - previousTxCount) / previousTxCount) * 100;
+      }
+
+      return {
+        tvlChange: Math.round(tvlChange * 10) / 10,
+        tvlAdded24h: Math.round(recentTvlAdded * 100) / 100,
+        revenueChange: Math.round(revenueChange * 10) / 10,
+        revenueAdded24h: Math.round(recentRevenue * 1000000) / 1000000,
+        transactionChange: Math.round(transactionChange * 10) / 10,
+        txCount24h: recentTxCount
+      };
+    } catch (error) {
+      console.error('Error calculating 24h change stats:', error);
+      return { tvlChange: 0, tvlAdded24h: 0, revenueChange: 0, revenueAdded24h: 0, transactionChange: 0, txCount24h: 0 };
+    }
   }
 
   /**
@@ -384,6 +456,7 @@ class TreasuryService {
   /**
    * Get total CAST locked in all active/unresolved market contracts (TRUE TVL)
    * This is the real liquidity at stake in prediction markets
+   * OPTIMIZED: Uses parallel RPC calls with timeout for much faster loading
    */
   async getTotalLockedInMarkets(): Promise<{ totalLocked: string; marketCount: number; marketDetails: Array<{id: string, claim: string, reserve: string}> }> {
     if (!this.provider) {
@@ -407,39 +480,75 @@ class TreasuryService {
         return { totalLocked: '0', marketCount: 0, marketDetails: [] };
       }
 
+      // Helper function to add timeout to a promise
+      const withTimeout = <T>(promise: Promise<T>, ms: number, marketId: string): Promise<T | null> => {
+        return Promise.race([
+          promise,
+          new Promise<null>((resolve) => {
+            setTimeout(() => {
+              console.warn(`Timeout reading reserve for market ${marketId} after ${ms}ms`);
+              resolve(null);
+            }, ms);
+          })
+        ]);
+      };
+
+      // Query ALL market contracts in PARALLEL (much faster than sequential)
+      const reservePromises = markets
+        .filter(market => market.contract_address)
+        .map(async (market) => {
+          try {
+            const marketContract = new ethers.Contract(
+              market.contract_address!,
+              PREDICTION_MARKET_ABI,
+              this.provider!
+            );
+
+            // 10 second timeout per contract call
+            const reserve = await withTimeout(
+              marketContract.reserve(),
+              10000,
+              market.id
+            );
+
+            if (reserve === null) {
+              return null; // Timed out
+            }
+
+            return {
+              id: market.id,
+              claim: market.claim?.substring(0, 50) + '...' || 'Unknown',
+              reserve: reserve as bigint
+            };
+          } catch (contractError) {
+            console.warn(`Could not read reserve for market ${market.id}:`, contractError);
+            return null;
+          }
+        });
+
+      // Wait for all calls to complete (with their individual timeouts)
+      const results = await Promise.all(reservePromises);
+
+      // Filter out failed/timed out calls and aggregate
       let totalLocked = BigInt(0);
       const marketDetails: Array<{id: string, claim: string, reserve: string}> = [];
-      let successCount = 0;
 
-      // Query each market contract for its reserve
-      for (const market of markets) {
-        if (!market.contract_address) continue;
-
-        try {
-          const marketContract = new ethers.Contract(
-            market.contract_address,
-            PREDICTION_MARKET_ABI,
-            this.provider!
-          );
-
-          const reserve = await marketContract.reserve();
-          totalLocked += reserve;
-          successCount++;
-
+      for (const result of results) {
+        if (result !== null) {
+          totalLocked += result.reserve;
           marketDetails.push({
-            id: market.id,
-            claim: market.claim?.substring(0, 50) + '...' || 'Unknown',
-            reserve: ethers.formatEther(reserve)
+            id: result.id,
+            claim: result.claim,
+            reserve: ethers.formatEther(result.reserve)
           });
-        } catch (contractError) {
-          // Skip markets with invalid/unreachable contracts
-          console.warn(`Could not read reserve for market ${market.id}:`, contractError);
         }
       }
 
+      console.log(`✅ Loaded TVL from ${marketDetails.length}/${markets.length} markets in parallel`);
+
       return {
         totalLocked: ethers.formatEther(totalLocked),
-        marketCount: successCount,
+        marketCount: marketDetails.length,
         marketDetails
       };
     } catch (error) {
@@ -534,13 +643,19 @@ class TreasuryService {
     try {
       const twentyFourHoursAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
 
-      const { count, error } = await supabase
-        .from('cast_purchases')
-        .select('*', { count: 'exact', head: true })
-        .gte('timestamp', twentyFourHoursAgo.toISOString());
+      // Count both token purchases AND bets placed in last 24h
+      const [{ count: purchaseCount }, { count: betCount }] = await Promise.all([
+        supabase
+          .from('cast_purchases')
+          .select('*', { count: 'exact', head: true })
+          .gte('timestamp', twentyFourHoursAgo.toISOString()),
+        supabase
+          .from('market_predictions')
+          .select('*', { count: 'exact', head: true })
+          .gte('created_at', twentyFourHoursAgo.toISOString())
+      ]);
 
-      if (error) throw error;
-      return count || 0;
+      return (purchaseCount || 0) + (betCount || 0);
     } catch (error) {
       console.error('Error fetching 24h transaction count:', error);
       return 0;
@@ -552,12 +667,17 @@ class TreasuryService {
    */
   async getTotalTransactionCount(): Promise<number> {
     try {
-      const { count, error } = await supabase
-        .from('cast_purchases')
-        .select('*', { count: 'exact', head: true });
+      // Count both token purchases AND bets
+      const [{ count: purchaseCount }, { count: betCount }] = await Promise.all([
+        supabase
+          .from('cast_purchases')
+          .select('*', { count: 'exact', head: true }),
+        supabase
+          .from('market_predictions')
+          .select('*', { count: 'exact', head: true })
+      ]);
 
-      if (error) throw error;
-      return count || 0;
+      return (purchaseCount || 0) + (betCount || 0);
     } catch (error) {
       console.error('Error fetching total transaction count:', error);
       return 0;

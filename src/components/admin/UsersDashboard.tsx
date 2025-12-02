@@ -49,8 +49,8 @@ export default function UsersDashboard() {
 
       // Get active users (users who have placed bets or created markets)
       const { data: activeBettors } = await supabase
-        .from('bets')
-        .select('wallet_address')
+        .from('market_predictions')
+        .select('user_address')
         .gte('created_at', weekAgo.toISOString());
 
       const { data: activeCreators } = await supabase
@@ -59,7 +59,7 @@ export default function UsersDashboard() {
         .gte('created_at', weekAgo.toISOString());
 
       const activeWallets = new Set([
-        ...(activeBettors?.map(b => b.wallet_address) || []),
+        ...(activeBettors?.map(b => b.user_address) || []),
         ...(activeCreators?.map(m => m.creator_address) || [])
       ]);
 
